@@ -3,4 +3,11 @@ name = "rapid"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "rapid-svc"
+path = "src/rapid-svc.rs"
+
 [dependencies]
+magic = "0.16.7"
+thiserror = "2.0.18"
+tokio = { version = "1.52.1", features = ["full"] }
