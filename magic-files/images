@@ -1,0 +1,8 @@
+0	string	FUJIFILMCCD-RAW		Fujifilm CCD raw image data
+!:mime	image/x-fujifilm-raf
+
+0	string	II\x55\0		Panasonic RW2 raw image data
+!:mime	image/x-panasonic-rw2
+
+0	string	\0\x4d\x52\x4d		Minolta MRW raw image data
+!:mime	image/x-minolta-mrw

@@ -22,12 +22,7 @@ RAPID is a web service that allows a user to upload an image to a server; upon u
 
 ### Technology stack
 
-* Rust 1.95.0
-* Axum, for web services
-* Tokio, for asynchronous programming 
-* `magic` crate, for Mime Type detection
-* `image` crate, for image pixel manipulation
-* `thiserror` crate, for idiomatic error handling
+
 
 ### Project structure
 
