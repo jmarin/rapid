@@ -61,14 +61,29 @@
       cursor: not-allowed;
     }
 
-    #progress-wrap {
-      display: none;
+    #uploads {
       margin-top: 1rem;
+    }
+
+    .file-row {
+      margin-bottom: 0.75rem;
+    }
+
+    .file-name {
+      font-size: 0.85rem;
+      margin-bottom: 0.25rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-wrap {
+      display: flex;
       align-items: center;
       gap: 0.5rem;
     }
 
-    #progress-bar {
+    .progress-wrap progress {
       flex: 1;
       width: 100%;
       height: 6px;
@@ -76,19 +91,25 @@
       appearance: none;
     }
 
-    #progress-bar::-webkit-progress-bar {
+    .progress-wrap progress::-webkit-progress-bar {
       background: #eee;
       border-radius: 3px;
     }
 
-    #progress-bar::-webkit-progress-value {
+    .progress-wrap progress::-webkit-progress-value {
       background: #333;
       border-radius: 3px;
     }
 
-    #status {
-      margin-top: 1rem;
-      font-size: 0.9rem;
+    .progress-wrap span {
+      font-size: 0.8rem;
+      min-width: 3ch;
+      text-align: right;
+    }
+
+    .file-status {
+      font-size: 0.8rem;
+      margin-top: 0.25rem;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -105,73 +126,96 @@
 
 <body>
   <main>
-    <h1>Upload File</h1>
-    <label for="file-input">Choose a file</label>
-    <input type="file" id="file-input">
+    <h1>Upload Files</h1>
+    <label for="file-input">Choose files</label>
+    <input type="file" id="file-input" multiple>
     <button id="upload-btn" disabled>Upload</button>
-    <div id="progress-wrap">
-      <progress id="progress-bar" max="100" value="0"></progress>
-      <span id="progress-text">0%</span>
-    </div>
-    <div id="status"></div>
+    <div id="uploads"></div>
   </main>
   <script>
     const fileInput = document.getElementById("file-input");
     const uploadBtn = document.getElementById("upload-btn");
-    const progressWrap = document.getElementById("progress-wrap");
-    const progressBar = document.getElementById("progress-bar");
-    const status = document.getElementById("status");
-
-    const progressText = document.getElementById("progress-text");
+    const uploadsDiv = document.getElementById("uploads");
 
     fileInput.addEventListener("change", () => {
       uploadBtn.disabled = !fileInput.files.length;
-      status.textContent = "";
-      status.className = "";
+      uploadsDiv.innerHTML = "";
     });
 
+    function uploadFile(file) {
+      const row = document.createElement("div");
+      row.className = "file-row";
+
+      const name = document.createElement("div");
+      name.className = "file-name";
+      name.textContent = file.name;
+
+      const progressWrap = document.createElement("div");
+      progressWrap.className = "progress-wrap";
+
+      const bar = document.createElement("progress");
+      bar.max = 100;
+      bar.value = 0;
+
+      const pctText = document.createElement("span");
+      pctText.textContent = "0%";
+
+      progressWrap.appendChild(bar);
+      progressWrap.appendChild(pctText);
+
+      const statusDiv = document.createElement("div");
+      statusDiv.className = "file-status";
+
+      row.appendChild(name);
+      row.appendChild(progressWrap);
+      row.appendChild(statusDiv);
+      uploadsDiv.appendChild(row);
+
+      return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/upload");
+
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            bar.value = pct;
+            pctText.textContent = pct + "%";
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status === 201) {
+            const data = JSON.parse(xhr.responseText);
+            statusDiv.className = "file-status success";
+            statusDiv.textContent = `Done — ${data.size_bytes} bytes, ${data.mime_type}`;
+          } else {
+            statusDiv.className = "file-status error";
+            statusDiv.textContent = `Error ${xhr.status}: ${xhr.responseText}`;
+          }
+          resolve();
+        });
+
+        xhr.addEventListener("error", () => {
+          statusDiv.className = "file-status error";
+          statusDiv.textContent = "Network error";
+          resolve();
+        });
+
+        xhr.send(file);
+      });
+    }
+
     uploadBtn.addEventListener("click", async () => {
-      const file = fileInput.files[0];
-      if (!file) return;
+      const files = Array.from(fileInput.files);
+      if (!files.length) return;
 
       uploadBtn.disabled = true;
-      status.textContent = "";
-      status.className = "";
-      progressWrap.style.display = "flex";
-      progressBar.value = 0;
-      progressText.textContent = "0%";
+      uploadsDiv.innerHTML = "";
 
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/upload");
+      const uploads = files.map((file) => uploadFile(file));
+      await Promise.all(uploads);
 
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          progressBar.value = pct;
-          progressText.textContent = pct + "%";
-        }
-      });
-
-      xhr.addEventListener("load", () => {
-        uploadBtn.disabled = false;
-        if (xhr.status === 201) {
-          const data = JSON.parse(xhr.responseText);
-          status.className = "success";
-          status.textContent =
-            `Upload complete\nID: ${data.id}\nSize: ${data.size_bytes} bytes\nMIME: ${data.mime_type}`;
-        } else {
-          status.className = "error";
-          status.textContent = `Error ${xhr.status}: ${xhr.responseText}`;
-        }
-      });
-
-      xhr.addEventListener("error", () => {
-        uploadBtn.disabled = false;
-        status.className = "error";
-        status.textContent = "Network error";
-      });
-
-      xhr.send(file);
+      uploadBtn.disabled = false;
     });
   </script>
 </body>
