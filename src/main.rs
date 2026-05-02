@@ -2,14 +2,16 @@ use dotenvy::dotenv;
 use rapid::{AppState, Application};
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 mod utils;
 
 use crate::utils::constants::prod::{
-    APP_ADDRESS, DEFAULT_LOG_LEVEL, DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION,
-    DEFAULT_UPLOAD_DIR,
+    APP_ADDRESS, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CONCURRENT_S3_PARTS, DEFAULT_S3_BUCKET,
+    DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION, DEFAULT_UPLOAD_DIR,
 };
 
 // Temporary main. This will run the Axum web service
@@ -68,6 +70,12 @@ async fn main() -> anyhow::Result<()> {
         upload_dir,
         s3_client,
         s3_bucket,
+        upload_semaphore: Arc::new(Semaphore::new(
+            env::var("RAPID_MAX_CONCURRENT_S3_PARTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_MAX_CONCURRENT_S3_PARTS),
+        )),
     };
 
     let app = Application::build(app_state, APP_ADDRESS)

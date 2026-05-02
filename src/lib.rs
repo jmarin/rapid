@@ -15,6 +15,8 @@ use axum::{
 pub use error::*;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::net::TcpListener;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
@@ -32,6 +34,7 @@ pub struct AppState {
     pub upload_dir: PathBuf,
     pub s3_client: aws_sdk_s3::Client,
     pub s3_bucket: String,
+    pub upload_semaphore: Arc<Semaphore>,
 }
 
 impl Application {
