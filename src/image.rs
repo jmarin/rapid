@@ -15,6 +15,24 @@ use crate::{AppState, error::UploadError, magic::mime_type_magic, ws::UploadEven
 const MIN_CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8MB
 const MAX_PARTS: u64 = 10_000;
 
+struct ProgressNotifier<'a> {
+    tx: &'a mpsc::Sender<UploadEvent>,
+    upload_id: &'a str,
+}
+
+impl<'a> ProgressNotifier<'a> {
+    fn new(
+        tx: Option<&'a mpsc::Sender<UploadEvent>>,
+        upload_id: Option<&'a str>,
+    ) -> Option<Self> {
+        Some(Self { tx: tx?, upload_id: upload_id? })
+    }
+
+    async fn send(&self, event: UploadEvent) {
+        let _ = self.tx.send(event).await;
+    }
+}
+
 #[derive(Serialize)]
 pub struct UploadResponse {
     pub id: String,
@@ -73,15 +91,16 @@ pub async fn upload_file(
     // Detect MIME type from temp file
     let mime_type = mime_type_magic(&temp_path).await?;
 
+    let notifier = ProgressNotifier::new(progress_tx.as_ref(), upload_id.as_deref());
+
     // Upload to S3: single PUT for small files, multipart for large files
     if size_bytes < MIN_CHUNK_SIZE {
-        if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
-            let _ = tx
-                .send(UploadEvent::UploadStarted {
-                    upload_id: uid.clone(),
-                    total_parts: 1,
-                })
-                .await;
+        if let Some(n) = &notifier {
+            n.send(UploadEvent::UploadStarted {
+                upload_id: n.upload_id.to_string(),
+                total_parts: 1,
+            })
+            .await;
         }
 
         let body_stream = ByteStream::from_path(&temp_path)
@@ -99,24 +118,14 @@ pub async fn upload_file(
             .await
             .map_err(|e| UploadError::S3(e.to_string()))?;
 
-        if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
-            let _ = tx
-                .send(UploadEvent::UploadCompleted {
-                    upload_id: uid.clone(),
-                })
-                .await;
+        if let Some(n) = &notifier {
+            n.send(UploadEvent::UploadCompleted {
+                upload_id: n.upload_id.to_string(),
+            })
+            .await;
         }
     } else {
-        multipart_upload(
-            &state,
-            &temp_path,
-            &file_id,
-            size_bytes,
-            &mime_type,
-            upload_id.as_deref(),
-            progress_tx.as_ref(),
-        )
-        .await?;
+        multipart_upload(&state, &temp_path, &file_id, size_bytes, &mime_type, &notifier).await?;
     }
 
     // Clean up progress entry from shared map
@@ -144,8 +153,7 @@ async fn multipart_upload(
     key: &str,
     file_size: u64,
     content_type: &str,
-    client_upload_id: Option<&str>,
-    progress_tx: Option<&mpsc::Sender<UploadEvent>>,
+    notifier: &Option<ProgressNotifier<'_>>,
 ) -> Result<(), UploadError> {
     let chunk_size = calculate_chunk_size(file_size);
     let num_parts = file_size.div_ceil(chunk_size);
@@ -167,13 +175,12 @@ async fn multipart_upload(
         .to_string();
 
     // Notify client that multipart upload has started
-    if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
-        let _ = tx
-            .send(UploadEvent::UploadStarted {
-                upload_id: uid.to_string(),
-                total_parts: num_parts,
-            })
-            .await;
+    if let Some(n) = notifier {
+        n.send(UploadEvent::UploadStarted {
+            upload_id: n.upload_id.to_string(),
+            total_parts: num_parts,
+        })
+        .await;
     }
 
     // Upload parts in parallel, throttled by the global semaphore
@@ -242,24 +249,22 @@ async fn multipart_upload(
                         .build(),
                 );
 
-                if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
-                    let _ = tx
-                        .send(UploadEvent::PartCompleted {
-                            upload_id: uid.to_string(),
-                            part_number,
-                            total_parts: num_parts,
-                        })
-                        .await;
+                if let Some(n) = notifier {
+                    n.send(UploadEvent::PartCompleted {
+                        upload_id: n.upload_id.to_string(),
+                        part_number,
+                        total_parts: num_parts,
+                    })
+                    .await;
                 }
             }
             Ok(Err(e)) => {
-                if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
-                    let _ = tx
-                        .send(UploadEvent::UploadFailed {
-                            upload_id: uid.to_string(),
-                            error: e.clone(),
-                        })
-                        .await;
+                if let Some(n) = notifier {
+                    n.send(UploadEvent::UploadFailed {
+                        upload_id: n.upload_id.to_string(),
+                        error: e.clone(),
+                    })
+                    .await;
                 }
                 let _ = state
                     .s3_client
@@ -272,13 +277,12 @@ async fn multipart_upload(
                 return Err(UploadError::S3(e));
             }
             Err(e) => {
-                if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
-                    let _ = tx
-                        .send(UploadEvent::UploadFailed {
-                            upload_id: uid.to_string(),
-                            error: e.to_string(),
-                        })
-                        .await;
+                if let Some(n) = notifier {
+                    n.send(UploadEvent::UploadFailed {
+                        upload_id: n.upload_id.to_string(),
+                        error: e.to_string(),
+                    })
+                    .await;
                 }
                 let _ = state
                     .s3_client
@@ -311,12 +315,11 @@ async fn multipart_upload(
         .await
         .map_err(|e| UploadError::S3(e.to_string()))?;
 
-    if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
-        let _ = tx
-            .send(UploadEvent::UploadCompleted {
-                upload_id: uid.to_string(),
-            })
-            .await;
+    if let Some(n) = notifier {
+        n.send(UploadEvent::UploadCompleted {
+            upload_id: n.upload_id.to_string(),
+        })
+        .await;
     }
 
     Ok(())
