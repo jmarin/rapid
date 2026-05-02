@@ -5,9 +5,15 @@ edition = "2024"
 
 [[bin]]
 name = "rapid-svc"
-path = "src/rapid-svc.rs"
+path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.102"
+axum = "0.8.9"
+dotenvy = "0.15.7"
 magic = "0.16.7"
 thiserror = "2.0.18"
 tokio = { version = "1.52.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+tower-http = { version = "0.6.6", features = ["cors", "fs", "trace"] }
