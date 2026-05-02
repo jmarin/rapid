@@ -360,6 +360,122 @@
       border-color: rgba(240, 192, 64, 0.5);
     }
 
+    /* File action pills (download + play) */
+    .file-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.6rem;
+    }
+
+    .file-actions .download-link { margin-top: 0; }
+
+    .play-btn {
+      /* override the global button rule */
+      width: auto;
+      background: none;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 400;
+      letter-spacing: normal;
+      animation: none;
+      /* pill appearance matching .download-link */
+      display: none;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.65rem;
+      border: 1px solid rgba(240, 192, 64, 0.25);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .play-btn:hover {
+      background: var(--accent-glow);
+      border-color: rgba(240, 192, 64, 0.5);
+    }
+
+    /* Video modal */
+    .video-modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(11, 12, 16, 0.88);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.25s ease, visibility 0s 0.25s;
+    }
+
+    .video-modal-overlay.is-open {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transition: opacity 0.25s ease, visibility 0s 0s;
+    }
+
+    .video-modal-panel {
+      position: relative;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      width: 92vw;
+      max-width: 860px;
+      box-shadow:
+        0 8px 40px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(240, 192, 64, 0.06);
+      transform: scale(0.95);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .video-modal-overlay.is-open .video-modal-panel {
+      transform: scale(1);
+    }
+
+    .video-modal-close {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.75rem;
+      width: auto;
+      background: none;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 1.1rem;
+      font-weight: 400;
+      line-height: 1;
+      padding: 0.25rem 0.4rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      animation: none;
+      transition: color 0.2s ease, background 0.2s ease;
+    }
+
+    .video-modal-close:hover {
+      color: var(--text-primary);
+      background: var(--border-subtle);
+      transform: none;
+      box-shadow: none;
+    }
+
+    .video-modal-video {
+      display: block;
+      width: 100%;
+      max-height: 70vh;
+      border-radius: var(--radius-sm);
+      background: #000;
+      margin-top: 2rem;
+    }
+
     /* Divider line */
     .divider {
       height: 1px;
@@ -388,6 +504,17 @@
     <div class="divider" id="divider"></div>
     <div id="uploads"></div>
   </main>
+
+  <div class="video-modal-overlay" id="video-modal"
+       role="dialog" aria-modal="true" aria-label="Video player">
+    <div class="video-modal-panel">
+      <button class="video-modal-close" id="video-modal-close"
+              aria-label="Close video player">&times;</button>
+      <video class="video-modal-video" id="video-modal-video"
+             controls playsinline></video>
+    </div>
+  </div>
+
   <script>
     const fileInput = document.getElementById("file-input");
     const uploadBtn = document.getElementById("upload-btn");
@@ -395,6 +522,10 @@
     const dropZone = document.getElementById("drop-zone");
     const fileCountEl = document.getElementById("file-count");
     const divider = document.getElementById("divider");
+    const videoModal = document.getElementById("video-modal");
+    const videoEl = document.getElementById("video-modal-video");
+    const videoCloseBtn = document.getElementById("video-modal-close");
+    let videoReturnFocus = null;
 
     // Drop zone interactions
     dropZone.addEventListener("click", () => fileInput.click());
@@ -448,6 +579,27 @@
     });
 
     let rowIndex = 0;
+
+    function openModal(fileId) {
+      videoReturnFocus = document.activeElement;
+      videoEl.src = "/files/" + fileId;
+      videoModal.classList.add("is-open");
+      videoCloseBtn.focus();
+    }
+
+    function closeModal() {
+      videoEl.pause();
+      videoEl.removeAttribute("src");
+      videoEl.load(); // abort buffering / in-flight range requests
+      videoModal.classList.remove("is-open");
+      if (videoReturnFocus) { videoReturnFocus.focus(); videoReturnFocus = null; }
+    }
+
+    videoCloseBtn.addEventListener("click", closeModal);
+    videoModal.addEventListener("click", (e) => { if (e.target === videoModal) closeModal(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && videoModal.classList.contains("is-open")) closeModal();
+    });
 
     function uploadFile(file) {
       const delay = rowIndex * 80;
@@ -505,13 +657,23 @@
       const downloadLink = document.createElement("a");
       downloadLink.className = "download-link";
 
+      const fileActions = document.createElement("div");
+      fileActions.className = "file-actions";
+      fileActions.appendChild(downloadLink);
+
+      const playBtn = document.createElement("button");
+      playBtn.className = "play-btn";
+      playBtn.type = "button";
+      playBtn.textContent = "Play";
+      fileActions.appendChild(playBtn);
+
       row.appendChild(name);
       row.appendChild(label1);
       row.appendChild(progressWrap1);
       row.appendChild(label2);
       row.appendChild(progressWrap2);
       row.appendChild(statusDiv);
-      row.appendChild(downloadLink);
+      row.appendChild(fileActions);
       uploadsDiv.appendChild(row);
 
       const uploadId = crypto.randomUUID();
@@ -571,6 +733,10 @@
             downloadLink.download = file.name;
             downloadLink.textContent = "Download";
             downloadLink.style.display = "inline-flex";
+            if (data.mime_type && data.mime_type.startsWith("video/")) {
+              playBtn.style.display = "inline-flex";
+              playBtn.addEventListener("click", () => openModal(data.id));
+            }
           } else {
             statusDiv.className = "file-status error";
             let msg = xhr.responseText;
