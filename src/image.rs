@@ -1,15 +1,16 @@
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
-use axum::{Json, body::Body, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{Json, body::Body, extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse};
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use std::io::{Read, Seek, SeekFrom};
 use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::io::StreamReader;
 use uuid::Uuid;
 
-use crate::{AppState, error::UploadError, magic::mime_type_magic};
+use crate::{AppState, error::UploadError, magic::mime_type_magic, ws::UploadEvent};
 
 const MIN_CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8MB
 const MAX_PARTS: u64 = 10_000;
@@ -33,10 +34,16 @@ fn calculate_chunk_size(file_size: u64) -> u64 {
 
 pub async fn upload_file(
     State(state): State<AppState>,
+    headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, UploadError> {
     let file_id = Uuid::new_v4().to_string();
     let temp_path = state.upload_dir.join(&file_id);
+
+    let upload_id = headers
+        .get("x-upload-id")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
 
     // Stream request body to a temp file
     let stream = body
@@ -55,11 +62,28 @@ pub async fn upload_file(
     file.flush().await?;
     drop(file);
 
+    // Look up progress sender after body is fully received
+    let progress_tx: Option<mpsc::Sender<UploadEvent>> = if let Some(ref uid) = upload_id {
+        let map = state.upload_progress.read().await;
+        map.get(uid).cloned()
+    } else {
+        None
+    };
+
     // Detect MIME type from temp file
     let mime_type = mime_type_magic(&temp_path).await?;
 
     // Upload to S3: single PUT for small files, multipart for large files
     if size_bytes < MIN_CHUNK_SIZE {
+        if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+            let _ = tx
+                .send(UploadEvent::UploadStarted {
+                    upload_id: uid.clone(),
+                    total_parts: 1,
+                })
+                .await;
+        }
+
         let body_stream = ByteStream::from_path(&temp_path)
             .await
             .map_err(|e| UploadError::S3(e.to_string()))?;
@@ -74,8 +98,31 @@ pub async fn upload_file(
             .send()
             .await
             .map_err(|e| UploadError::S3(e.to_string()))?;
+
+        if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+            let _ = tx
+                .send(UploadEvent::UploadCompleted {
+                    upload_id: uid.clone(),
+                })
+                .await;
+        }
     } else {
-        multipart_upload(&state, &temp_path, &file_id, size_bytes, &mime_type).await?;
+        multipart_upload(
+            &state,
+            &temp_path,
+            &file_id,
+            size_bytes,
+            &mime_type,
+            upload_id.as_deref(),
+            progress_tx.as_ref(),
+        )
+        .await?;
+    }
+
+    // Clean up progress entry from shared map
+    if let Some(ref uid) = upload_id {
+        let mut map = state.upload_progress.write().await;
+        map.remove(uid);
     }
 
     // Clean up temp file
@@ -97,6 +144,8 @@ async fn multipart_upload(
     key: &str,
     file_size: u64,
     content_type: &str,
+    client_upload_id: Option<&str>,
+    progress_tx: Option<&mpsc::Sender<UploadEvent>>,
 ) -> Result<(), UploadError> {
     let chunk_size = calculate_chunk_size(file_size);
     let num_parts = file_size.div_ceil(chunk_size);
@@ -116,6 +165,16 @@ async fn multipart_upload(
         .upload_id()
         .ok_or_else(|| UploadError::S3("missing upload_id".to_string()))?
         .to_string();
+
+    // Notify client that multipart upload has started
+    if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
+        let _ = tx
+            .send(UploadEvent::UploadStarted {
+                upload_id: uid.to_string(),
+                total_parts: num_parts,
+            })
+            .await;
+    }
 
     // Upload parts in parallel, throttled by the global semaphore
     let mut join_set = JoinSet::new();
@@ -182,8 +241,26 @@ async fn multipart_upload(
                         .e_tag(e_tag)
                         .build(),
                 );
+
+                if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
+                    let _ = tx
+                        .send(UploadEvent::PartCompleted {
+                            upload_id: uid.to_string(),
+                            part_number,
+                            total_parts: num_parts,
+                        })
+                        .await;
+                }
             }
             Ok(Err(e)) => {
+                if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
+                    let _ = tx
+                        .send(UploadEvent::UploadFailed {
+                            upload_id: uid.to_string(),
+                            error: e.clone(),
+                        })
+                        .await;
+                }
                 let _ = state
                     .s3_client
                     .abort_multipart_upload()
@@ -195,6 +272,14 @@ async fn multipart_upload(
                 return Err(UploadError::S3(e));
             }
             Err(e) => {
+                if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
+                    let _ = tx
+                        .send(UploadEvent::UploadFailed {
+                            upload_id: uid.to_string(),
+                            error: e.to_string(),
+                        })
+                        .await;
+                }
                 let _ = state
                     .s3_client
                     .abort_multipart_upload()
@@ -225,6 +310,14 @@ async fn multipart_upload(
         .send()
         .await
         .map_err(|e| UploadError::S3(e.to_string()))?;
+
+    if let (Some(tx), Some(uid)) = (progress_tx, client_upload_id) {
+        let _ = tx
+            .send(UploadEvent::UploadCompleted {
+                upload_id: uid.to_string(),
+            })
+            .await;
+    }
 
     Ok(())
 }

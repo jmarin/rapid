@@ -1,0 +1,113 @@
+use axum::{
+    extract::{
+        State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
+    response::IntoResponse,
+};
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+
+use crate::AppState;
+
+/// Messages the client sends over the WebSocket.
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+pub enum WsCommand {
+    #[serde(rename = "subscribe")]
+    Subscribe { upload_id: String },
+}
+
+/// Progress events the server pushes to the client over the WebSocket.
+#[derive(Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum UploadEvent {
+    #[serde(rename = "subscribed")]
+    Subscribed { upload_id: String },
+
+    #[serde(rename = "upload_started")]
+    UploadStarted { upload_id: String, total_parts: u64 },
+
+    #[serde(rename = "part_completed")]
+    PartCompleted {
+        upload_id: String,
+        part_number: i32,
+        total_parts: u64,
+    },
+
+    #[serde(rename = "upload_completed")]
+    UploadCompleted { upload_id: String },
+
+    #[serde(rename = "upload_failed")]
+    UploadFailed { upload_id: String, error: String },
+}
+
+pub async fn ws_upload_progress(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: AppState) {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+
+    // Single mpsc channel for this WS connection.
+    // All subscribed upload_ids funnel events into this one channel.
+    let (event_tx, mut event_rx) = mpsc::channel::<UploadEvent>(256);
+
+    // Track which upload_ids this connection subscribed to, for cleanup.
+    let subscribed_ids = std::sync::Mutex::new(Vec::<String>::new());
+
+    // Forward events from mpsc channel -> WebSocket
+    let send_task = tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            if let Ok(json) = serde_json::to_string(&event)
+                && ws_tx.send(Message::Text(json.into())).await.is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    // Read client messages from WebSocket (subscribe commands)
+    let progress_map = state.upload_progress.clone();
+    let recv_task = async {
+        while let Some(Ok(msg)) = ws_rx.next().await {
+            match msg {
+                Message::Text(text) => {
+                    if let Ok(cmd) = serde_json::from_str::<WsCommand>(&text) {
+                        match cmd {
+                            WsCommand::Subscribe { upload_id } => {
+                                {
+                                    let mut map = progress_map.write().await;
+                                    map.insert(upload_id.clone(), event_tx.clone());
+                                }
+                                subscribed_ids.lock().unwrap().push(upload_id.clone());
+
+                                let _ = event_tx.send(UploadEvent::Subscribed { upload_id }).await;
+                            }
+                        }
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = send_task => {},
+        _ = recv_task => {},
+    }
+
+    // Cleanup: remove all this connection's upload_ids from the shared map
+    let ids = subscribed_ids.lock().unwrap().clone();
+    if !ids.is_empty() {
+        let mut map = state.upload_progress.write().await;
+        for id in &ids {
+            map.remove(id);
+        }
+    }
+}

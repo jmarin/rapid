@@ -107,6 +107,12 @@
       text-align: right;
     }
 
+    .progress-label {
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 0.15rem;
+    }
+
     .file-status {
       font-size: 0.8rem;
       margin-top: 0.25rem;
@@ -137,6 +143,25 @@
     const uploadBtn = document.getElementById("upload-btn");
     const uploadsDiv = document.getElementById("uploads");
 
+    // WebSocket connection for upload progress
+    let ws = null;
+    const uploadHandlers = new Map();
+
+    function connectWs() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${proto}//${location.host}/ws/upload-progress`);
+      ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        const handler = uploadHandlers.get(data.upload_id);
+        if (handler) handler(data);
+      };
+      ws.onclose = () => {
+        setTimeout(connectWs, 2000);
+      };
+    }
+
+    connectWs();
+
     fileInput.addEventListener("change", () => {
       uploadBtn.disabled = !fileInput.files.length;
       uploadsDiv.innerHTML = "";
@@ -150,40 +175,103 @@
       name.className = "file-name";
       name.textContent = file.name;
 
-      const progressWrap = document.createElement("div");
-      progressWrap.className = "progress-wrap";
+      // Phase 1: browser -> server
+      const label1 = document.createElement("div");
+      label1.className = "progress-label";
+      label1.textContent = "Sending to server";
 
-      const bar = document.createElement("progress");
-      bar.max = 100;
-      bar.value = 0;
+      const progressWrap1 = document.createElement("div");
+      progressWrap1.className = "progress-wrap";
 
-      const pctText = document.createElement("span");
-      pctText.textContent = "0%";
+      const bar1 = document.createElement("progress");
+      bar1.max = 100;
+      bar1.value = 0;
 
-      progressWrap.appendChild(bar);
-      progressWrap.appendChild(pctText);
+      const pct1 = document.createElement("span");
+      pct1.textContent = "0%";
+
+      progressWrap1.appendChild(bar1);
+      progressWrap1.appendChild(pct1);
+
+      // Phase 2: server -> S3 (hidden until S3 upload starts)
+      const label2 = document.createElement("div");
+      label2.className = "progress-label";
+      label2.textContent = "Uploading to storage";
+      label2.style.display = "none";
+
+      const progressWrap2 = document.createElement("div");
+      progressWrap2.className = "progress-wrap";
+      progressWrap2.style.display = "none";
+
+      const bar2 = document.createElement("progress");
+      bar2.max = 100;
+      bar2.value = 0;
+
+      const pct2 = document.createElement("span");
+      pct2.textContent = "";
+
+      progressWrap2.appendChild(bar2);
+      progressWrap2.appendChild(pct2);
 
       const statusDiv = document.createElement("div");
       statusDiv.className = "file-status";
 
       row.appendChild(name);
-      row.appendChild(progressWrap);
+      row.appendChild(label1);
+      row.appendChild(progressWrap1);
+      row.appendChild(label2);
+      row.appendChild(progressWrap2);
       row.appendChild(statusDiv);
       uploadsDiv.appendChild(row);
+
+      const uploadId = crypto.randomUUID();
+      let partsCompleted = 0;
+
+      // Register WS event handler for this upload
+      uploadHandlers.set(uploadId, (data) => {
+        switch (data.type) {
+          case "upload_started":
+            label2.style.display = "block";
+            progressWrap2.style.display = "flex";
+            bar2.value = 0;
+            pct2.textContent = `0/${data.total_parts} parts`;
+            break;
+          case "part_completed":
+            partsCompleted++;
+            const pct = Math.round((partsCompleted / data.total_parts) * 100);
+            bar2.value = pct;
+            pct2.textContent = `${partsCompleted}/${data.total_parts} parts`;
+            break;
+          case "upload_completed":
+            bar2.value = 100;
+            pct2.textContent = "done";
+            break;
+          case "upload_failed":
+            pct2.textContent = "failed";
+            break;
+        }
+      });
+
+      // Subscribe on WS before starting POST
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "subscribe", upload_id: uploadId }));
+      }
 
       return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", "/upload");
+        xhr.setRequestHeader("X-Upload-Id", uploadId);
 
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
             const pct = Math.round((e.loaded / e.total) * 100);
-            bar.value = pct;
-            pctText.textContent = pct + "%";
+            bar1.value = pct;
+            pct1.textContent = pct + "%";
           }
         });
 
         xhr.addEventListener("load", () => {
+          uploadHandlers.delete(uploadId);
           if (xhr.status === 201) {
             const data = JSON.parse(xhr.responseText);
             statusDiv.className = "file-status success";
@@ -197,6 +285,7 @@
         });
 
         xhr.addEventListener("error", () => {
+          uploadHandlers.delete(uploadId);
           statusDiv.className = "file-status error";
           statusDiv.textContent = "Network error";
           resolve();

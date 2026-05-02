@@ -1,6 +1,7 @@
 pub mod error;
 pub mod image;
 pub mod magic;
+pub mod ws;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -13,10 +14,11 @@ use axum::{
     serve::Serve,
 };
 pub use error::*;
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::net::TcpListener;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
@@ -35,6 +37,7 @@ pub struct AppState {
     pub s3_client: aws_sdk_s3::Client,
     pub s3_bucket: String,
     pub upload_semaphore: Arc<Semaphore>,
+    pub upload_progress: Arc<RwLock<HashMap<String, mpsc::Sender<ws::UploadEvent>>>>,
 }
 
 impl Application {
@@ -57,6 +60,7 @@ impl Application {
             .fallback_service(assets_dir)
             .route("/health", get(liveness))
             .route("/ready", get(readiness))
+            .route("/ws/upload-progress", get(ws::ws_upload_progress))
             .merge(upload_route)
             .layer(cors)
             .with_state(app_state);
