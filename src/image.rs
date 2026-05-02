@@ -1,6 +1,12 @@
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
-use axum::{Json, body::Body, extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse};
+use axum::{
+    Json,
+    body::Body,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use std::io::{Read, Seek, SeekFrom};
@@ -21,11 +27,11 @@ struct ProgressNotifier<'a> {
 }
 
 impl<'a> ProgressNotifier<'a> {
-    fn new(
-        tx: Option<&'a mpsc::Sender<UploadEvent>>,
-        upload_id: Option<&'a str>,
-    ) -> Option<Self> {
-        Some(Self { tx: tx?, upload_id: upload_id? })
+    fn new(tx: Option<&'a mpsc::Sender<UploadEvent>>, upload_id: Option<&'a str>) -> Option<Self> {
+        Some(Self {
+            tx: tx?,
+            upload_id: upload_id?,
+        })
     }
 
     async fn send(&self, event: UploadEvent) {
@@ -78,7 +84,7 @@ pub async fn upload_file(
         }
     };
     file.flush().await?;
-    drop(file);
+    drop(file); // This is not necessary on Linux environments, but might be necessary on Windows to remove the write handle before reading the file
 
     // Look up progress sender after body is fully received
     let progress_tx: Option<mpsc::Sender<UploadEvent>> = if let Some(ref uid) = upload_id {
@@ -90,6 +96,24 @@ pub async fn upload_file(
 
     // Detect MIME type from temp file
     let mime_type = mime_type_magic(&temp_path).await?;
+
+    // Reject files that are not image or video: delete temp file, notify client, and return 422
+    if !mime_type.starts_with("image/") && !mime_type.starts_with("video/") {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+            let _ = tx
+                .send(UploadEvent::UploadFailed {
+                    upload_id: uid.clone(),
+                    error: format!("not an image or video: {mime_type}"),
+                })
+                .await;
+        }
+        if let Some(ref uid) = upload_id {
+            let mut map = state.upload_progress.write().await;
+            map.remove(uid);
+        }
+        return Err(UploadError::NotAnImageOrVideo(mime_type));
+    }
 
     let notifier = ProgressNotifier::new(progress_tx.as_ref(), upload_id.as_deref());
 
@@ -119,13 +143,22 @@ pub async fn upload_file(
             .map_err(|e| UploadError::S3(e.to_string()))?;
 
         if let Some(n) = &notifier {
+            n.send(UploadEvent::PartCompleted {
+                upload_id: n.upload_id.to_string(),
+                part_number: 1,
+                total_parts: 1,
+            })
+            .await;
             n.send(UploadEvent::UploadCompleted {
                 upload_id: n.upload_id.to_string(),
             })
             .await;
         }
     } else {
-        multipart_upload(&state, &temp_path, &file_id, size_bytes, &mime_type, &notifier).await?;
+        multipart_upload(
+            &state, &temp_path, &file_id, size_bytes, &mime_type, &notifier,
+        )
+        .await?;
     }
 
     // Clean up progress entry from shared map
