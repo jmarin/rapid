@@ -21,6 +21,8 @@ pub enum UploadError {
     Stream(String),
     #[error("MIME type detection failed: {0}")]
     MimeDetection(#[from] MimeTypeError),
+    #[error("S3 error: {0}")]
+    S3(String),
 }
 
 impl IntoResponse for UploadError {
@@ -29,6 +31,7 @@ impl IntoResponse for UploadError {
             UploadError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             UploadError::Stream(_) => StatusCode::BAD_REQUEST,
             UploadError::MimeDetection(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            UploadError::S3(_) => StatusCode::BAD_GATEWAY,
         };
         let body = serde_json::json!({ "error": self.to_string() });
         (status, axum::Json(body)).into_response()
