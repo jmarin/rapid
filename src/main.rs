@@ -1,15 +1,16 @@
 use dotenvy::dotenv;
-use rapid::{AppState, Application, magic::mime_type_magic};
+use rapid::{AppState, Application};
+use std::env;
 use std::path::PathBuf;
-use std::{env, path::Path};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 mod utils;
 
-use utils::*;
-
-use crate::utils::constants::prod::{APP_ADDRESS, DEFAULT_LOG_LEVEL, DEFAULT_UPLOAD_DIR};
+use crate::utils::constants::prod::{
+    APP_ADDRESS, DEFAULT_LOG_LEVEL, DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION,
+    DEFAULT_UPLOAD_DIR,
+};
 
 // Temporary main. This will run the Axum web service
 #[tokio::main]
@@ -28,7 +29,46 @@ async fn main() -> anyhow::Result<()> {
     };
     tokio::fs::create_dir_all(&upload_dir).await?;
 
-    let app_state = AppState { upload_dir };
+    // S3 configuration
+    let s3_endpoint =
+        env::var("RAPID_S3_ENDPOINT").unwrap_or_else(|_| DEFAULT_S3_ENDPOINT.to_string());
+    let s3_region = env::var("RAPID_S3_REGION").unwrap_or_else(|_| DEFAULT_S3_REGION.to_string());
+    let s3_access_key = env::var("RAPID_S3_ACCESS_KEY").expect("RAPID_S3_ACCESS_KEY must be set");
+    let s3_secret_key = env::var("RAPID_S3_SECRET_KEY").expect("RAPID_S3_SECRET_KEY must be set");
+    let s3_bucket = env::var("RAPID_S3_BUCKET").unwrap_or_else(|_| DEFAULT_S3_BUCKET.to_string());
+
+    let s3_creds =
+        aws_sdk_s3::config::Credentials::new(s3_access_key, s3_secret_key, None, None, "rapid-env");
+
+    let s3_config = aws_sdk_s3::Config::builder()
+        .region(aws_sdk_s3::config::Region::new(s3_region))
+        .endpoint_url(&s3_endpoint)
+        .credentials_provider(s3_creds)
+        .behavior_version_latest()
+        .force_path_style(true)
+        .build();
+
+    let s3_client = aws_sdk_s3::Client::from_conf(s3_config);
+
+    // Ensure the bucket exists. If it doesn't, create it
+    match s3_client.head_bucket().bucket(&s3_bucket).send().await {
+        Ok(_) => info!("S3 bucket '{}' exists", s3_bucket),
+        Err(_) => {
+            info!("Creating S3 bucket '{}'", s3_bucket);
+            s3_client
+                .create_bucket()
+                .bucket(&s3_bucket)
+                .send()
+                .await
+                .expect("Failed to create S3 bucket");
+        }
+    }
+
+    let app_state = AppState {
+        upload_dir,
+        s3_client,
+        s3_bucket,
+    };
 
     let app = Application::build(app_state, APP_ADDRESS)
         .await

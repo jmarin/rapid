@@ -30,6 +30,8 @@ pub struct ErrorResponse {
 #[derive(Clone)]
 pub struct AppState {
     pub upload_dir: PathBuf,
+    pub s3_client: aws_sdk_s3::Client,
+    pub s3_bucket: String,
 }
 
 impl Application {
@@ -46,7 +48,7 @@ impl Application {
         let upload_route = Router::new()
             .route("/upload", post(image::upload_file))
             .layer(DefaultBodyLimit::disable())
-            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024));
+            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)); // Setting a limit of 10GB file size for uploads
 
         let router = Router::new()
             .fallback_service(assets_dir)
