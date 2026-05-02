@@ -187,7 +187,8 @@
           if (xhr.status === 201) {
             const data = JSON.parse(xhr.responseText);
             statusDiv.className = "file-status success";
-            statusDiv.textContent = `Done — ${data.size_bytes} bytes, ${data.mime_type}`;
+            const sizeMB = (data.size_bytes / (1024 * 1024)).toFixed(2);
+            statusDiv.textContent = `Done — ${sizeMB} MB, ${data.mime_type}`;
           } else {
             statusDiv.className = "file-status error";
             statusDiv.textContent = `Error ${xhr.status}: ${xhr.responseText}`;
