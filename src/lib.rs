@@ -7,14 +7,16 @@ pub mod test_utils;
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     http::{Method, StatusCode},
-    routing::get,
+    routing::{get, post},
     serve::Serve,
 };
 pub use error::*;
 use std::error::Error;
+use std::path::PathBuf;
 use tokio::net::TcpListener;
-use tower_http::{cors::CorsLayer, services::ServeDir};
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
 pub struct Application {
     server: Serve<TcpListener, Router, Router>,
@@ -26,7 +28,9 @@ pub struct ErrorResponse {
 }
 
 #[derive(Clone)]
-pub struct AppState {}
+pub struct AppState {
+    pub upload_dir: PathBuf,
+}
 
 impl Application {
     pub async fn build(app_state: AppState, address: &str) -> Result<Self, Box<dyn Error>> {
@@ -39,10 +43,16 @@ impl Application {
 
         let assets_dir = ServeDir::new("assets");
 
+        let upload_route = Router::new()
+            .route("/upload", post(image::upload_file))
+            .layer(DefaultBodyLimit::disable())
+            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024));
+
         let router = Router::new()
             .fallback_service(assets_dir)
             .route("/health", get(liveness))
             .route("/ready", get(readiness))
+            .merge(upload_route)
             .layer(cors)
             .with_state(app_state);
 
