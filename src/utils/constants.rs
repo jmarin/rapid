@@ -5,4 +5,5 @@ pub mod prod {
     pub const DEFAULT_S3_ENDPOINT: &str = "http://localhost:9000";
     pub const DEFAULT_S3_BUCKET: &str = "rapid-uploads";
     pub const DEFAULT_S3_REGION: &str = "us-east-1";
+    pub const DEFAULT_MAX_CONCURRENT_S3_PARTS: usize = 24;
 }
