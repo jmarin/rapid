@@ -146,7 +146,6 @@ mod tests {
     use crate::test_utils::assert_all_files_with_extension_have_mime_type;
 
     use std::path::Path;
-    use std::sync::Once;
 
     async fn detect_by_path(path: String) -> Result<String, MimeTypeError> {
         mime_type_magic(Path::new(&path)).await
