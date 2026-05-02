@@ -339,6 +339,27 @@
       background: var(--success-dim);
     }
 
+    /* Download link */
+    .download-link {
+      display: none;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.6rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      text-decoration: none;
+      padding: 0.3rem 0.65rem;
+      border: 1px solid rgba(240, 192, 64, 0.25);
+      border-radius: var(--radius-sm);
+      transition: all 0.2s ease;
+    }
+
+    .download-link:hover {
+      background: var(--accent-glow);
+      border-color: rgba(240, 192, 64, 0.5);
+    }
+
     /* Divider line */
     .divider {
       height: 1px;
@@ -481,12 +502,16 @@
       const statusDiv = document.createElement("div");
       statusDiv.className = "file-status";
 
+      const downloadLink = document.createElement("a");
+      downloadLink.className = "download-link";
+
       row.appendChild(name);
       row.appendChild(label1);
       row.appendChild(progressWrap1);
       row.appendChild(label2);
       row.appendChild(progressWrap2);
       row.appendChild(statusDiv);
+      row.appendChild(downloadLink);
       uploadsDiv.appendChild(row);
 
       const uploadId = crypto.randomUUID();
@@ -542,6 +567,10 @@
             statusDiv.className = "file-status success";
             const sizeMB = (data.size_bytes / (1024 * 1024)).toFixed(2);
             statusDiv.textContent = `Done — ${sizeMB} MB, ${data.mime_type}`;
+            downloadLink.href = `/files/${data.id}`;
+            downloadLink.download = file.name;
+            downloadLink.textContent = "Download";
+            downloadLink.style.display = "inline-flex";
           } else {
             statusDiv.className = "file-status error";
             let msg = xhr.responseText;

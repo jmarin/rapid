@@ -2,6 +2,28 @@ use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+pub enum DownloadError {
+    #[error("object not found")]
+    NotFound,
+    #[error("S3 error: {0}")]
+    S3(String),
+    #[error("invalid Range header")]
+    InvalidRange,
+}
+
+impl IntoResponse for DownloadError {
+    fn into_response(self) -> axum::response::Response {
+        let status = match &self {
+            DownloadError::NotFound => StatusCode::NOT_FOUND,
+            DownloadError::S3(_) => StatusCode::BAD_GATEWAY,
+            DownloadError::InvalidRange => StatusCode::RANGE_NOT_SATISFIABLE,
+        };
+        let body = serde_json::json!({ "error": self.to_string() });
+        (status, axum::Json(body)).into_response()
+    }
+}
+
+#[derive(Debug, Error)]
 pub enum MimeTypeError {
     #[error("file size is 0")]
     ZeroByteFileError,

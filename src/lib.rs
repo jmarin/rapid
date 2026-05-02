@@ -1,3 +1,4 @@
+pub mod download;
 pub mod error;
 pub mod image;
 pub mod magic;
@@ -60,6 +61,7 @@ impl Application {
             .fallback_service(assets_dir)
             .route("/health", get(liveness))
             .route("/ready", get(readiness))
+            .route("/files/{id}", get(download::download_file))
             .route("/ws/upload-progress", get(ws::ws_upload_progress))
             .merge(upload_route)
             .layer(cors)
