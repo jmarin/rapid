@@ -244,7 +244,7 @@
             break;
           case "upload_completed":
             bar2.value = 100;
-            pct2.textContent = "done";
+            pct2.textContent = `done (${partsCompleted} parts)`;
             break;
           case "upload_failed":
             pct2.textContent = "failed";
