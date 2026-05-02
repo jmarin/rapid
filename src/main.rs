@@ -1,9 +1,10 @@
 use dotenvy::dotenv;
 use rapid::{AppState, Application};
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -76,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_MAX_CONCURRENT_S3_PARTS),
         )),
+        upload_progress: Arc::new(RwLock::new(HashMap::new())),
     };
 
     let app = Application::build(app_state, APP_ADDRESS)
