@@ -544,7 +544,9 @@
             statusDiv.textContent = `Done — ${sizeMB} MB, ${data.mime_type}`;
           } else {
             statusDiv.className = "file-status error";
-            statusDiv.textContent = `Error ${xhr.status}: ${xhr.responseText}`;
+            let msg = xhr.responseText;
+            try { msg = JSON.parse(xhr.responseText).error ?? msg; } catch (_) {}
+            statusDiv.textContent = `Error ${xhr.status}: ${msg}`;
           }
           resolve();
         });
