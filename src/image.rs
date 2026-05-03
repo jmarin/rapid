@@ -87,7 +87,7 @@ pub async fn upload_file(
     drop(file); // This is not necessary on Linux environments, but might be necessary on Windows to remove the write handle before reading the file
 
     // Look up progress sender after body is fully received
-    let progress_tx: Option<mpsc::Sender<UploadEvent>> = if let Some(ref uid) = upload_id {
+    let progress_tx: Option<mpsc::Sender<UploadEvent>> = if let Some(uid) = &upload_id {
         let map = state.upload_progress.read().await;
         map.get(uid).cloned()
     } else {
@@ -108,7 +108,7 @@ pub async fn upload_file(
                 })
                 .await;
         }
-        if let Some(ref uid) = upload_id {
+        if let Some(uid) = &upload_id {
             let mut map = state.upload_progress.write().await;
             map.remove(uid);
         }
@@ -162,7 +162,7 @@ pub async fn upload_file(
     }
 
     // Clean up progress entry from shared map
-    if let Some(ref uid) = upload_id {
+    if let Some(uid) = &upload_id {
         let mut map = state.upload_progress.write().await;
         map.remove(uid);
     }
