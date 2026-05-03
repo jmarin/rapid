@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.102"
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["ws"] }
 dotenvy = "0.15.7"
 futures-util = "0.3"
 magic = "0.16.7"
@@ -22,3 +22,4 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 tower-http = { version = "0.6.6", features = ["cors", "fs", "trace", "limit"] }
 uuid = { version = "1", features = ["v4"] }
+aws-sdk-s3 = "1.131.0"

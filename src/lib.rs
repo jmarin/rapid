@@ -1,6 +1,8 @@
+pub mod download;
 pub mod error;
 pub mod image;
 pub mod magic;
+pub mod ws;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -13,8 +15,11 @@ use axum::{
     serve::Serve,
 };
 pub use error::*;
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::net::TcpListener;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
@@ -30,6 +35,10 @@ pub struct ErrorResponse {
 #[derive(Clone)]
 pub struct AppState {
     pub upload_dir: PathBuf,
+    pub s3_client: aws_sdk_s3::Client,
+    pub s3_bucket: String,
+    pub upload_semaphore: Arc<Semaphore>,
+    pub upload_progress: Arc<RwLock<HashMap<String, mpsc::Sender<ws::UploadEvent>>>>,
 }
 
 impl Application {
@@ -46,12 +55,14 @@ impl Application {
         let upload_route = Router::new()
             .route("/upload", post(image::upload_file))
             .layer(DefaultBodyLimit::disable())
-            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024));
+            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)); // Setting a limit of 10GB file size for uploads
 
         let router = Router::new()
             .fallback_service(assets_dir)
             .route("/health", get(liveness))
             .route("/ready", get(readiness))
+            .route("/files/{id}", get(download::download_file))
+            .route("/ws/upload-progress", get(ws::ws_upload_progress))
             .merge(upload_route)
             .layer(cors)
             .with_state(app_state);
