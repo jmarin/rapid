@@ -1,0 +1,16 @@
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - RUSTFS_ROOT_USER=${RUSTFS_ROOT_USER:-rustfsadmin}
+      - RUSTFS_ROOT_PASSWORD=${RUSTFS_ROOT_PASSWORD:-rustfsadmin}
+    volumes:
+      - rustfs-data:/data
+      - rustfs-logs:/logs
+
+volumes:
+  rustfs-data:
+  rustfs-logs:
