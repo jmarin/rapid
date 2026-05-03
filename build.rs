@@ -15,6 +15,9 @@ fn main() {
     #[cfg(target_os = "macos")]
     configure_macos_libmagic();
 
+    #[cfg(target_os = "windows")]
+    configure_windows_libmagic();
+
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
     let source_dir = manifest_dir.join(CUSTOM_MAGIC_SOURCE_DIR);
@@ -57,6 +60,43 @@ fn configure_macos_libmagic() {
             println!("cargo:rustc-link-search=native={dir}");
         }
     }
+}
+
+/// On Windows, libmagic must be installed manually via MSYS2 or vcpkg.
+/// This function emits the correct `rustc-link-search` directive so that
+/// `-lmagic` resolves at link time.
+#[cfg(target_os = "windows")]
+fn configure_windows_libmagic() {
+    // Prefer vcpkg if VCPKG_ROOT is set.
+    if let Ok(vcpkg_root) = env::var("VCPKG_ROOT") {
+        let vcpkg_lib = PathBuf::from(&vcpkg_root).join("installed/x64-windows/lib");
+        if vcpkg_lib.exists() {
+            println!("cargo:rustc-link-search=native={}", vcpkg_lib.display());
+            return;
+        }
+    }
+
+    // Check MSYS2 via MSYSTEM_PREFIX (set inside MSYS2 shells).
+    if let Ok(prefix) = env::var("MSYSTEM_PREFIX") {
+        let lib_dir = PathBuf::from(&prefix).join("lib");
+        if lib_dir.exists() {
+            println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            return;
+        }
+    }
+
+    // Fallback: common MSYS2 installation paths.
+    for prefix in ["C:/msys64/mingw64", "C:/msys64/ucrt64", "C:/msys64/clang64"] {
+        let lib_dir = Path::new(prefix).join("lib");
+        if lib_dir.exists() {
+            println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            return;
+        }
+    }
+
+    println!(
+        "cargo:warning=libmagic not found. Install via MSYS2 (pacman -S mingw-w64-x86_64-file) or vcpkg."
+    );
 }
 
 fn clean_directory(dir: &Path) {
@@ -108,13 +148,20 @@ fn compile_merged_magic_file(source_dir: &Path, compiled_dir: &Path) {
         .file_name()
         .expect("merged custom magic source file name missing");
 
-    let status = Command::new("file")
+    let file_cmd = resolve_file_command();
+    let status = Command::new(&file_cmd)
         .arg("-C")
         .arg("-m")
         .arg(merged_source_name)
         .current_dir(compiled_dir)
         .status()
-        .expect("failed to execute file -C -m for merged custom magic source");
+        .unwrap_or_else(|e| {
+            panic!(
+                "failed to execute '{}' -C -m: {e}. \
+                 On Windows, install libmagic via MSYS2 and ensure its bin directory is on PATH.",
+                file_cmd.display()
+            )
+        });
 
     if !status.success() {
         panic!(
@@ -124,4 +171,36 @@ fn compile_merged_magic_file(source_dir: &Path, compiled_dir: &Path) {
     }
 
     fs::remove_file(merged_source_path).expect("failed to remove merged custom magic source file");
+}
+
+/// Resolves the path to the `file` command. On Unix it is expected to be on
+/// `PATH`. On Windows it may live inside an MSYS2 prefix that is not on `PATH`,
+/// so we probe well-known locations.
+fn resolve_file_command() -> PathBuf {
+    #[cfg(not(target_os = "windows"))]
+    {
+        PathBuf::from("file")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Inside an MSYS2 shell the prefix is available as an env var.
+        if let Ok(prefix) = env::var("MSYSTEM_PREFIX") {
+            let file_exe = PathBuf::from(&prefix).join("bin/file.exe");
+            if file_exe.exists() {
+                return file_exe;
+            }
+        }
+
+        // Probe common MSYS2 paths.
+        for prefix in ["C:/msys64/mingw64", "C:/msys64/ucrt64", "C:/msys64/clang64"] {
+            let file_exe = Path::new(prefix).join("bin/file.exe");
+            if file_exe.exists() {
+                return file_exe;
+            }
+        }
+
+        // Last resort: assume it is on PATH.
+        PathBuf::from("file")
+    }
 }
