@@ -13,69 +13,65 @@ pub async fn download_file(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, DownloadError> {
-    // HEAD the object to get total size and content-type before deciding on range
-    let head = state
-        .s3_client
-        .head_object()
-        .bucket(&state.s3_bucket)
-        .key(&id)
-        .send()
-        .await
-        .map_err(|e| {
-            use aws_sdk_s3::operation::head_object::HeadObjectError;
-            let is_not_found = e
-                .as_service_error()
-                .map(|se| matches!(se, HeadObjectError::NotFound(_)))
-                .unwrap_or(false);
-            if is_not_found {
-                DownloadError::NotFound
-            } else {
-                DownloadError::S3(e.to_string())
-            }
-        })?;
-
-    let total_size = head.content_length().unwrap_or(0) as u64;
-    let content_type = head
-        .content_type()
-        .unwrap_or("application/octet-stream")
-        .to_string();
-
-    // Parse the Range header and determine byte range
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
 
-    let (range_str, start, end, status) = if let Some(range) = range_header {
-        let (start, end) = parse_range(range, total_size).ok_or(DownloadError::InvalidRange)?;
-        (
-            Some(format!("bytes={}-{}", start, end)),
-            start,
-            end,
-            StatusCode::PARTIAL_CONTENT,
-        )
+    // For range requests, we need the total size to parse the Range header.
+    // Look it up from the metadata store (free, local) instead of a HEAD call to S3.
+    let total_size = if range_header.is_some() {
+        match state.metadata.get_by_id(&id).await {
+            Ok(Some(meta)) => meta.size_bytes as u64,
+            Ok(None) => return Err(DownloadError::NotFound),
+            Err(e) => return Err(DownloadError::S3(e.to_string())),
+        }
     } else {
-        (None, 0u64, total_size.saturating_sub(1), StatusCode::OK)
+        0 // Not needed for non-range requests; we'll get it from the GET response
     };
 
-    // Fetch object from S3 with optional Range
+    // Build the S3 GET request
     let mut get_req = state
         .s3_client
         .get_object()
         .bucket(&state.s3_bucket)
         .key(&id);
 
-    if let Some(ref r) = range_str {
-        get_req = get_req.range(r);
-    }
+    let (status, start, end, actual_total_size) = if let Some(range) = range_header {
+        let (s, e) = parse_range(range, total_size).ok_or(DownloadError::InvalidRange)?;
+        get_req = get_req.range(format!("bytes={}-{}", s, e));
+        (StatusCode::PARTIAL_CONTENT, s, e, total_size)
+    } else {
+        (StatusCode::OK, 0u64, 0u64, 0u64) // end/total filled in after GET
+    };
 
-    let resp = get_req
-        .send()
-        .await
-        .map_err(|e| DownloadError::S3(e.to_string()))?;
+    let resp = get_req.send().await.map_err(|e| {
+        use aws_sdk_s3::operation::get_object::GetObjectError;
+        let is_not_found = e
+            .as_service_error()
+            .map(|se| matches!(se, GetObjectError::NoSuchKey(_)))
+            .unwrap_or(false);
+        if is_not_found {
+            DownloadError::NotFound
+        } else {
+            DownloadError::S3(e.to_string())
+        }
+    })?;
 
-    // content_length is the number of bytes returned (end - start + 1), or the full size
-    let content_length = if total_size == 0 {
+    let content_type = resp
+        .content_type()
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    // For non-range requests, get actual size from the response
+    let (final_start, final_end, final_total) = if status == StatusCode::OK {
+        let size = resp.content_length().unwrap_or(0) as u64;
+        (0u64, size.saturating_sub(1), size)
+    } else {
+        (start, end, actual_total_size)
+    };
+
+    let content_length = if final_total == 0 {
         0u64
     } else {
-        end - start + 1
+        final_end - final_start + 1
     };
 
     // Build response headers
@@ -92,7 +88,7 @@ pub async fn download_file(
     response_headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
     if status == StatusCode::PARTIAL_CONTENT {
-        let content_range = format!("bytes {}-{}/{}", start, end, total_size);
+        let content_range = format!("bytes {}-{}/{}", final_start, final_end, final_total);
         if let Ok(v) = HeaderValue::from_str(&content_range) {
             response_headers.insert(header::CONTENT_RANGE, v);
         }
