@@ -813,7 +813,7 @@
               const step = document.createElement('div');
               step.className = 'derivative-step pending';
               step.dataset.index = i;
-              step.innerHTML = `<span class="step-icon">○</span><span class="step-label">${item.size} ${item.name}</span>`;
+              step.innerHTML = `<span class="step-icon">○</span><span class="step-label">${item.name}${item.size !== "6000x6000" ? ' ' + item.size : ''}</span>`;
               section.appendChild(step);
             });
             const first = section.querySelector('[data-index="0"]');
