@@ -83,6 +83,12 @@ pub async fn upload_file(
         .unwrap_or("unknown")
         .to_string();
 
+    let parallel_derivatives = headers
+        .get("x-parallel-derivatives")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
     // Stream request body to a temp file (auto-deleted on drop).
     // Preserve the original file extension so the `image` crate can detect the format.
     let suffix = std::path::Path::new(&file_name)
@@ -218,6 +224,7 @@ pub async fn upload_file(
             spawn_mime,
             spawn_progress_tx,
             spawn_upload_id.clone(),
+            parallel_derivatives,
         )
         .await;
         // Clean up progress entry after processing is done
@@ -248,6 +255,7 @@ async fn process_image_derivatives(
     mime_type: String,
     progress_tx: Option<mpsc::Sender<UploadEvent>>,
     upload_id: Option<String>,
+    parallel: bool,
 ) {
     // Only process image types (not video)
     if !mime_type.starts_with("image/") {
@@ -297,8 +305,7 @@ async fn process_image_derivatives(
         }
     };
 
-    // Pre-compute output paths for each spec so the blocking closure can
-    // write all derivatives in one shot (decode once, resize in parallel).
+    // Pre-compute output paths for each spec.
     let spec_outputs: Vec<(image::ResizeSpec, std::path::PathBuf)> = specs
         .iter()
         .map(|spec| {
@@ -310,16 +317,20 @@ async fn process_image_derivatives(
         })
         .collect();
 
-    // Single spawn_blocking: decode the image once and resize all specs in parallel.
+    // Decode image once, resize either in parallel (rayon) or sequentially.
     let blocking_input = temp_path.clone();
     let spec_outputs_clone = spec_outputs.clone();
     let resize_start = std::time::Instant::now();
     let resize_results = tokio::task::spawn_blocking(move || {
-        image::resize_all_parallel(&blocking_input, &spec_outputs_clone)
+        if parallel {
+            image::resize_all_parallel(&blocking_input, &spec_outputs_clone)
+        } else {
+            image::resize_all_sequential(&blocking_input, &spec_outputs_clone)
+        }
     })
     .await;
     let resize_elapsed = resize_start.elapsed();
-    tracing::info!(file_id = %file_id, elapsed_ms = resize_elapsed.as_millis(), "all derivatives resized");
+    tracing::info!(file_id = %file_id, elapsed_ms = resize_elapsed.as_millis(), parallel = parallel, "all derivatives resized");
 
     let per_spec_results = match resize_results {
         Ok(Ok(results)) => results,

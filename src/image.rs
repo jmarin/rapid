@@ -165,6 +165,25 @@ pub fn resize_all_parallel(
     Ok(results)
 }
 
+/// Decode the image at `input_path` and resize it to all given `specs`
+/// sequentially (single-threaded). Same interface as [`resize_all_parallel`].
+pub fn resize_all_sequential(
+    input_path: &Path,
+    specs: &[(ResizeSpec, PathBuf)],
+) -> Result<Vec<(String, PathBuf, Result<(), ImageError>)>, ImageError> {
+    let img = image::open(input_path).map_err(ImageError::Decode)?;
+
+    let results: Vec<(String, PathBuf, Result<(), ImageError>)> = specs
+        .iter()
+        .map(|(spec, out_path)| {
+            let result = resize_from_decoded(&img, out_path, spec);
+            (spec.label.to_string(), out_path.clone(), result)
+        })
+        .collect();
+
+    Ok(results)
+}
+
 /// Errors that can occur during image processing.
 #[derive(Debug, thiserror::Error)]
 pub enum ImageError {
