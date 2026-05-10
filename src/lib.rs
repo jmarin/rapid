@@ -78,6 +78,7 @@ impl Application {
             .route("/files/{id}/metadata", get(metadata::get_file_metadata))
             .route("/files/{id}/derivatives", get(metadata::list_derivatives))
             .route("/api/files", get(metadata::list_file_metadata))
+            .route("/api/files", delete(metadata::delete_all_files))
             .route("/api/files/{id}", delete(metadata::delete_file))
             .route("/api/files/{id}/detail", get(metadata::get_file_detail))
             .route("/ws/upload-progress", get(ws::ws_upload_progress))

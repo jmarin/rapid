@@ -240,6 +240,32 @@ impl MetadataStore {
     pub async fn close(&self) {
         self.pool.close().await;
     }
+
+    /// Returns all S3 keys (files + derivatives) and deletes all rows.
+    pub async fn delete_all(&self) -> Result<Vec<String>, sqlx::Error> {
+        let file_keys: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM file_metadata",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let derivative_keys: Vec<(String,)> = sqlx::query_as(
+            "SELECT s3_key FROM derivatives",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        sqlx::query("DELETE FROM derivatives")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM file_metadata")
+            .execute(&self.pool)
+            .await?;
+
+        let mut keys: Vec<String> = file_keys.into_iter().map(|(k,)| k).collect();
+        keys.extend(derivative_keys.into_iter().map(|(k,)| k));
+        Ok(keys)
+    }
 }
 
 pub async fn get_file_metadata(
@@ -317,6 +343,33 @@ pub async fn delete_file(
         Err(e) => {
             tracing::error!(error = %e, "failed to delete metadata");
             (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "file deleted from storage but metadata removal failed" }))).into_response()
+        }
+    }
+}
+
+pub async fn delete_all_files(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match state.metadata.delete_all().await {
+        Ok(s3_keys) => {
+            let count = s3_keys.len();
+            for key in &s3_keys {
+                if let Err(e) = state.s3_client
+                    .delete_object()
+                    .bucket(&state.s3_bucket)
+                    .key(key)
+                    .send()
+                    .await
+                {
+                    tracing::warn!(error = %e, key = %key, "failed to delete object from S3 during delete-all");
+                }
+            }
+            tracing::info!(count = count, "deleted all files and derivatives");
+            (StatusCode::OK, Json(serde_json::json!({ "deleted": count }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to delete all files");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "internal error" }))).into_response()
         }
     }
 }

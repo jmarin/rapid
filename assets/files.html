@@ -253,6 +253,30 @@
       border-color: rgba(248, 113, 113, 0.5);
     }
 
+    .delete-all-btn {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--error);
+      background: none;
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.3rem 0.7rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .delete-all-btn:hover {
+      background: var(--error-dim);
+      border-color: rgba(248, 113, 113, 0.5);
+    }
+
+    .delete-all-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     .delete-btn:disabled {
       opacity: 0.3;
       cursor: not-allowed;
@@ -339,6 +363,7 @@
       <h1>Rapid</h1>
       <span class="badge">files</span>
       <a href="/" class="nav-link">Upload</a>
+      <button class="delete-all-btn" id="delete-all-btn">Delete All</button>
     </div>
 
     <div id="content">
@@ -486,6 +511,42 @@
         }
       });
     }
+
+    // Delete All
+    document.getElementById("delete-all-btn").addEventListener("click", () => {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `
+        <div class="confirm-dialog">
+          <p>Delete <strong>all files</strong> and their derivatives? This cannot be undone.</p>
+          <div class="confirm-actions">
+            <button class="btn-cancel">Cancel</button>
+            <button class="btn-confirm-delete">Delete All</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector(".btn-cancel").addEventListener("click", () => overlay.remove());
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+      overlay.querySelector(".btn-confirm-delete").addEventListener("click", async () => {
+        const delBtn = overlay.querySelector(".btn-confirm-delete");
+        delBtn.disabled = true;
+        delBtn.textContent = "Deleting\u2026";
+        try {
+          const resp = await fetch("/api/files", { method: "DELETE" });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${resp.status}`);
+          }
+          overlay.remove();
+          loadPage(1);
+        } catch (err) {
+          delBtn.textContent = "Failed";
+          setTimeout(() => overlay.remove(), 1500);
+        }
+      });
+    });
 
     loadPage(currentPage);
   </script>
