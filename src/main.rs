@@ -43,12 +43,19 @@ async fn main() -> anyhow::Result<()> {
     let s3_creds =
         aws_sdk_s3::config::Credentials::new(s3_access_key, s3_secret_key, None, None, "rapid-env");
 
+    let timeout_config = aws_sdk_s3::config::timeout::TimeoutConfig::builder()
+        .operation_timeout(std::time::Duration::from_secs(300))
+        .operation_attempt_timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build();
+
     let s3_config = aws_sdk_s3::Config::builder()
         .region(aws_sdk_s3::config::Region::new(s3_region))
         .endpoint_url(&s3_endpoint)
         .credentials_provider(s3_creds)
         .behavior_version_latest()
         .force_path_style(true)
+        .timeout_config(timeout_config)
         .build();
 
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config);
