@@ -13,7 +13,7 @@ use axum::{
     Router,
     extract::DefaultBodyLimit,
     http::{Method, StatusCode},
-    routing::{get, post},
+    routing::{delete, get, post},
     serve::Serve,
 };
 pub use error::*;
@@ -69,6 +69,7 @@ impl Application {
             .route("/files/{id}", get(download::download_file))
             .route("/files/{id}/metadata", get(metadata::get_file_metadata))
             .route("/api/metadata", get(metadata::list_file_metadata))
+            .route("/api/metadata/{id}", delete(metadata::delete_file))
             .route("/ws/upload-progress", get(ws::ws_upload_progress))
             .merge(upload_route)
             .layer(cors)

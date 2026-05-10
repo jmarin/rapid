@@ -228,6 +228,102 @@
       color: var(--text-dim);
       font-size: 0.78rem;
     }
+
+    .delete-btn {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--error);
+      background: none;
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.2rem 0.5rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .delete-btn:hover {
+      background: var(--error-dim);
+      border-color: rgba(248, 113, 113, 0.5);
+    }
+
+    .delete-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* Confirm dialog overlay */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+
+    .confirm-dialog {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+    }
+
+    .confirm-dialog p {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+    }
+
+    .confirm-dialog .file-name {
+      color: var(--text-primary);
+      font-weight: 500;
+      display: block;
+      margin-top: 0.35rem;
+      word-break: break-all;
+    }
+
+    .confirm-actions {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+
+    .confirm-actions button {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.4rem 1rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-cancel {
+      color: var(--text-secondary);
+      background: none;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-cancel:hover {
+      border-color: var(--border-hover);
+      color: var(--text-primary);
+    }
+
+    .btn-confirm-delete {
+      color: var(--error);
+      background: var(--error-dim);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+    }
+
+    .btn-confirm-delete:hover {
+      background: rgba(248, 113, 113, 0.2);
+      border-color: rgba(248, 113, 113, 0.5);
+    }
   </style>
 </head>
 
@@ -290,7 +386,7 @@
         }
 
         let html = '<div class="table-wrap"><table><thead><tr>';
-        html += '<th>ID</th><th>File Name</th><th>Size</th><th>MIME Type</th><th>Created</th>';
+        html += '<th>ID</th><th>File Name</th><th>Size</th><th>MIME Type</th><th>Created</th><th></th>';
         html += '</tr></thead><tbody>';
 
         for (const item of data.items) {
@@ -300,6 +396,7 @@
           html += `<td>${formatBytes(item.size_bytes)}</td>`;
           html += `<td>${item.mime_type}</td>`;
           html += `<td>${item.created_at}</td>`;
+          html += `<td><button class="delete-btn" data-id="${item.id}" data-name="${item.file_name}">Delete</button></td>`;
           html += '</tr>';
         }
 
@@ -319,6 +416,50 @@
 
     prevBtn.addEventListener("click", () => { if (currentPage > 1) loadPage(currentPage - 1); });
     nextBtn.addEventListener("click", () => { if (currentPage < totalPages) loadPage(currentPage + 1); });
+
+    // Delete with confirmation
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".delete-btn");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const name = btn.dataset.name;
+      showConfirm(id, name);
+    });
+
+    function showConfirm(id, fileName) {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `
+        <div class="confirm-dialog">
+          <p>Delete this file and its metadata?<span class="file-name">${fileName}</span></p>
+          <div class="confirm-actions">
+            <button class="btn-cancel">Cancel</button>
+            <button class="btn-confirm-delete">Delete</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector(".btn-cancel").addEventListener("click", () => overlay.remove());
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+      overlay.querySelector(".btn-confirm-delete").addEventListener("click", async () => {
+        const delBtn = overlay.querySelector(".btn-confirm-delete");
+        delBtn.disabled = true;
+        delBtn.textContent = "Deleting\u2026";
+        try {
+          const resp = await fetch(`/api/metadata/${id}`, { method: "DELETE" });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${resp.status}`);
+          }
+          overlay.remove();
+          loadPage(currentPage);
+        } catch (err) {
+          delBtn.textContent = "Failed";
+          setTimeout(() => overlay.remove(), 1500);
+        }
+      });
+    }
 
     loadPage(currentPage);
   </script>
