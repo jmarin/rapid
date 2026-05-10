@@ -409,7 +409,7 @@
         }
 
         let html = '<div class="table-wrap"><table><thead><tr>';
-        html += '<th></th><th>ID</th><th>File Name</th><th>Size</th><th>MIME Type</th><th>Created</th><th>Status</th><th></th>';
+        html += '<th></th><th>ID</th><th>File Name</th><th>Resolution</th><th>Size</th><th>MIME Type</th><th>Created</th><th>Status</th><th></th>';
         html += '</tr></thead><tbody>';
 
         for (const item of data.items) {
@@ -417,6 +417,7 @@
           html += thumbnailCell(item);
           html += `<td class="id-cell" title="${item.id}">${item.id.slice(0, 8)}\u2026</td>`;
           html += `<td title="${item.file_name}">${item.file_name}</td>`;
+          html += `<td>${item.width && item.height ? item.width + '×' + item.height : '—'}</td>`;
           html += `<td>${formatBytes(item.size_bytes)}</td>`;
           html += `<td>${item.mime_type}</td>`;
           html += `<td>${item.created_at}</td>`;

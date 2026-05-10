@@ -112,7 +112,7 @@
       padding: 1rem 1.25rem;
       margin-bottom: 1.5rem;
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 1rem;
     }
     .meta-item label {
@@ -299,6 +299,7 @@
         </div>
         <div class="meta-card">
           <div class="meta-item"><label>Size</label><span>${formatBytes(file.size_bytes)}</span></div>
+          <div class="meta-item"><label>Resolution</label><span>${file.width && file.height ? file.width + '×' + file.height + ' px' : '—'}</span></div>
           <div class="meta-item"><label>MIME Type</label><span>${file.mime_type}</span></div>
           <div class="meta-item"><label>Uploaded</label><span>${file.created_at}</span></div>
           <div class="meta-item"><label>Status</label><span>${allCompleted ? '<span class="status-badge status-ready">&check; Ready</span>' : isImage ? '<span class="status-badge status-processing">&#10227; Processing</span>' : '&mdash;'}</span></div>

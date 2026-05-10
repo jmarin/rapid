@@ -18,6 +18,8 @@ pub struct FileMetadata {
     pub size_bytes: i64,
     pub mime_type: String,
     pub created_at: String,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -80,14 +82,18 @@ impl MetadataStore {
         file_name: &str,
         size_bytes: i64,
         mime_type: &str,
+        width: Option<u32>,
+        height: Option<u32>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO file_metadata (id, file_name, size_bytes, mime_type) VALUES (?, ?, ?, ?)",
+            "INSERT INTO file_metadata (id, file_name, size_bytes, mime_type, width, height) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(file_name)
         .bind(size_bytes)
         .bind(mime_type)
+        .bind(width.map(|v| v as i64))
+        .bind(height.map(|v| v as i64))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -95,7 +101,7 @@ impl MetadataStore {
 
     pub async fn get_by_id(&self, id: &str) -> Result<Option<FileMetadata>, sqlx::Error> {
         sqlx::query_as::<_, FileMetadata>(
-            "SELECT id, file_name, size_bytes, mime_type, created_at FROM file_metadata WHERE id = ?",
+            "SELECT id, file_name, size_bytes, mime_type, created_at, width, height FROM file_metadata WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -111,7 +117,7 @@ impl MetadataStore {
         let fetch_limit = per_page + 1; // Fetch one extra to detect next page
 
         let mut items = sqlx::query_as::<_, FileMetadata>(
-            "SELECT id, file_name, size_bytes, mime_type, created_at FROM file_metadata ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT id, file_name, size_bytes, mime_type, created_at, width, height FROM file_metadata ORDER BY created_at DESC LIMIT ? OFFSET ?",
         )
         .bind(fetch_limit)
         .bind(offset)

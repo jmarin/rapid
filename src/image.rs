@@ -66,6 +66,11 @@ pub fn resize_image(
     Ok(())
 }
 
+/// Returns the dimensions (width, height) of the image at `input_path`.
+pub fn get_dimensions(input_path: &Path) -> Result<(u32, u32), ImageError> {
+    image::image_dimensions(input_path).map_err(ImageError::Decode)
+}
+
 /// Returns `true` if the image at `input_path` exceeds [`HIGH_RES_THRESHOLD`]
 /// in either dimension.
 pub fn needs_high_res(input_path: &Path) -> Result<bool, ImageError> {

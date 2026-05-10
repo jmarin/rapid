@@ -179,10 +179,23 @@ pub async fn upload_file(
         .await?;
     }
 
+    // Read image dimensions if this is an image
+    let (img_width, img_height) = if mime_type.starts_with("image/") {
+        match image::get_dimensions(&temp_path) {
+            Ok((w, h)) => (Some(w), Some(h)),
+            Err(e) => {
+                tracing::warn!(file_id = %file_id, error = %e, "failed to read image dimensions");
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
+
     // Save file metadata to SQLite
     if let Err(e) = state
         .metadata
-        .insert(&file_id, &file_name, size_bytes as i64, &mime_type)
+        .insert(&file_id, &file_name, size_bytes as i64, &mime_type, img_width, img_height)
         .await
     {
         tracing::error!(file_id = %file_id, error = %e, "failed to save file metadata");
