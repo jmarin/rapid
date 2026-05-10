@@ -234,6 +234,7 @@ async fn multipart_upload(
     // Upload parts in parallel, throttled by both global AND per-upload semaphores
     let per_upload_sem = Arc::new(Semaphore::new(state.max_parts_per_upload));
     let mut join_set = JoinSet::new();
+    let bucket: Arc<str> = state.s3_bucket.as_str().into();
 
     for part_idx in 0..num_parts {
         let part_number = (part_idx + 1) as i32; // S3 parts are 1-indexed
@@ -242,7 +243,7 @@ async fn multipart_upload(
         let length = std::cmp::min(chunk_size, file_size - offset) as usize;
 
         let s3_client = state.s3_client.clone();
-        let bucket = state.s3_bucket.clone();
+        let bucket = bucket.clone();
         let key = key.to_string();
         let upload_id = upload_id.clone();
         let temp_path = temp_path.to_path_buf();
@@ -284,7 +285,7 @@ async fn multipart_upload(
 
             let resp = s3_client
                 .upload_part()
-                .bucket(&bucket)
+                .bucket(&*bucket)
                 .key(&key)
                 .upload_id(&upload_id)
                 .part_number(part_number)
