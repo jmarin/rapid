@@ -11,7 +11,7 @@ use tracing_subscriber::EnvFilter;
 mod utils;
 
 use crate::utils::constants::prod::{
-    APP_ADDRESS, DEFAULT_DB_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CONCURRENT_S3_PARTS,
+    APP_ADDRESS, DEFAULT_DB_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MAX_INFLIGHT_PARTS,
     DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION, DEFAULT_UPLOAD_DIR,
 };
 
@@ -72,16 +72,20 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("Failed to initialize metadata database");
 
+    let max_inflight_parts: usize = env::var("RAPID_MAX_INFLIGHT_PARTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MAX_INFLIGHT_PARTS);
+
+    // Per-upload cap: at most 1/4 of global permits, but no fewer than 4
+    let max_parts_per_upload = (max_inflight_parts / 4).max(4);
+
     let app_state = AppState {
         upload_dir,
         s3_client,
         s3_bucket,
-        upload_semaphore: Arc::new(Semaphore::new(
-            env::var("RAPID_MAX_CONCURRENT_S3_PARTS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(DEFAULT_MAX_CONCURRENT_S3_PARTS),
-        )),
+        upload_semaphore: Arc::new(Semaphore::new(max_inflight_parts)),
+        max_parts_per_upload,
         upload_progress: Arc::new(RwLock::new(HashMap::new())),
         metadata,
     };
