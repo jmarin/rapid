@@ -678,27 +678,55 @@
 
       const uploadId = crypto.randomUUID();
       let partsCompleted = 0;
+      const t0 = performance.now(); // start of temp file phase
+      let tS3Start = null;
+      let timerInterval = null;
+
+      // Live elapsed timer for phase 1
+      timerInterval = setInterval(() => {
+        const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+        label1.textContent = `Sending to server \u2014 ${elapsed}s`;
+      }, 100);
 
       // Register WS event handler for this upload
       uploadHandlers.set(uploadId, (data) => {
         switch (data.type) {
-          case "upload_started":
+          case "upload_started": {
+            // Phase 1 done
+            clearInterval(timerInterval);
+            const tempDuration = ((performance.now() - t0) / 1000).toFixed(3);
+            label1.textContent = `Sending to server \u2014 ${tempDuration}s`;
+
+            // Phase 2 begins
+            tS3Start = performance.now();
             label2.style.display = "block";
             progressWrap2.style.display = "flex";
             bar2.value = 0;
             pct2.textContent = `0/${data.total_parts} parts`;
+
+            timerInterval = setInterval(() => {
+              const elapsed = ((performance.now() - tS3Start) / 1000).toFixed(3);
+              label2.textContent = `Uploading to storage \u2014 ${elapsed}s`;
+            }, 100);
             break;
-          case "part_completed":
+          }
+          case "part_completed": {
             partsCompleted++;
-            const pct = Math.round((partsCompleted / data.total_parts) * 100);
-            bar2.value = pct;
+            const pctVal = Math.round((partsCompleted / data.total_parts) * 100);
+            bar2.value = pctVal;
             pct2.textContent = `${partsCompleted}/${data.total_parts} parts`;
             break;
-          case "upload_completed":
+          }
+          case "upload_completed": {
+            clearInterval(timerInterval);
+            const s3Duration = tS3Start ? ((performance.now() - tS3Start) / 1000).toFixed(3) : "?";
+            label2.textContent = `Uploading to storage \u2014 ${s3Duration}s`;
             bar2.value = 100;
             pct2.textContent = `done (${partsCompleted} parts)`;
             break;
+          }
           case "upload_failed":
+            clearInterval(timerInterval);
             pct2.textContent = "failed";
             break;
         }
@@ -723,8 +751,14 @@
         });
 
         xhr.addEventListener("load", () => {
+          clearInterval(timerInterval);
           uploadHandlers.delete(uploadId);
           if (xhr.status === 201) {
+            // If no WS events arrived (small file / single PUT), finalize phase 1 timing
+            if (!tS3Start) {
+              const totalDuration = ((performance.now() - t0) / 1000).toFixed(3);
+              label1.textContent = `Sending to server \u2014 ${totalDuration}s`;
+            }
             const data = JSON.parse(xhr.responseText);
             statusDiv.className = "file-status success";
             const sizeMB = (data.size_bytes / (1024 * 1024)).toFixed(2);
@@ -747,6 +781,7 @@
         });
 
         xhr.addEventListener("error", () => {
+          clearInterval(timerInterval);
           uploadHandlers.delete(uploadId);
           statusDiv.className = "file-status error";
           statusDiv.textContent = "Network error";
