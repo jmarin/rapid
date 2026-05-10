@@ -62,3 +62,74 @@ impl IntoResponse for UploadError {
         (status, axum::Json(body)).into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    fn status_of(resp: axum::response::Response) -> StatusCode {
+        resp.status()
+    }
+
+    // ── DownloadError ──
+
+    #[test]
+    fn download_not_found_returns_404() {
+        assert_eq!(status_of(DownloadError::NotFound.into_response()), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn download_s3_returns_502() {
+        assert_eq!(
+            status_of(DownloadError::S3("boom".into()).into_response()),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn download_invalid_range_returns_416() {
+        assert_eq!(
+            status_of(DownloadError::InvalidRange.into_response()),
+            StatusCode::RANGE_NOT_SATISFIABLE
+        );
+    }
+
+    // ── UploadError ──
+
+    #[test]
+    fn upload_io_returns_500() {
+        let err = UploadError::Io(std::io::Error::new(std::io::ErrorKind::Other, "disk full"));
+        assert_eq!(status_of(err.into_response()), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn upload_stream_returns_400() {
+        assert_eq!(
+            status_of(UploadError::Stream("bad".into()).into_response()),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn upload_mime_detection_returns_422() {
+        let err = UploadError::MimeDetection(MimeTypeError::ZeroByteFileError);
+        assert_eq!(status_of(err.into_response()), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn upload_s3_returns_502() {
+        assert_eq!(
+            status_of(UploadError::S3("timeout".into()).into_response()),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn upload_not_image_returns_422() {
+        assert_eq!(
+            status_of(UploadError::NotAnImageOrVideo("text/plain".into()).into_response()),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+}

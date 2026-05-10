@@ -34,6 +34,19 @@ pub struct ListResponse {
     pub total_pages: i64,
 }
 
+/// Calculate total pages using ceiling division.
+pub fn total_pages(total: i64, per_page: i64) -> i64 {
+    if per_page <= 0 {
+        return 0;
+    }
+    (total + per_page - 1) / per_page
+}
+
+/// Clamp page number to at least 1.
+pub fn clamp_page(page: Option<i64>) -> i64 {
+    page.unwrap_or(1).max(1)
+}
+
 impl MetadataStore {
     pub async fn new(db_url: &str) -> Result<Self, sqlx::Error> {
         let pool = SqlitePool::connect(db_url).await?;
@@ -166,18 +179,18 @@ pub async fn list_file_metadata(
     State(state): State<AppState>,
     Query(params): Query<ListParams>,
 ) -> impl IntoResponse {
-    let page = params.page.unwrap_or(1).max(1);
+    let page = clamp_page(params.page);
     let per_page = DEFAULT_PER_PAGE;
 
     match state.metadata.list(page, per_page).await {
         Ok((items, total)) => {
-            let total_pages = (total + per_page - 1) / per_page;
+            let tp = total_pages(total, per_page);
             let resp = ListResponse {
                 items,
                 page,
                 per_page,
                 total,
-                total_pages,
+                total_pages: tp,
             };
             (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
         }
@@ -186,5 +199,60 @@ pub async fn list_file_metadata(
             let body = serde_json::json!({ "error": "internal error" });
             (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn total_pages_exact_division() {
+        assert_eq!(total_pages(40, 20), 2);
+    }
+
+    #[test]
+    fn total_pages_with_remainder() {
+        assert_eq!(total_pages(41, 20), 3);
+    }
+
+    #[test]
+    fn total_pages_zero_items() {
+        assert_eq!(total_pages(0, 20), 0);
+    }
+
+    #[test]
+    fn total_pages_one_item() {
+        assert_eq!(total_pages(1, 20), 1);
+    }
+
+    #[test]
+    fn total_pages_per_page_equals_total() {
+        assert_eq!(total_pages(20, 20), 1);
+    }
+
+    #[test]
+    fn total_pages_zero_per_page() {
+        assert_eq!(total_pages(10, 0), 0);
+    }
+
+    #[test]
+    fn clamp_page_none_defaults_to_1() {
+        assert_eq!(clamp_page(None), 1);
+    }
+
+    #[test]
+    fn clamp_page_zero_clamps_to_1() {
+        assert_eq!(clamp_page(Some(0)), 1);
+    }
+
+    #[test]
+    fn clamp_page_negative_clamps_to_1() {
+        assert_eq!(clamp_page(Some(-5)), 1);
+    }
+
+    #[test]
+    fn clamp_page_positive_passes_through() {
+        assert_eq!(clamp_page(Some(3)), 3);
     }
 }
