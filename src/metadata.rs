@@ -340,6 +340,36 @@ pub async fn list_file_metadata(
     }
 }
 
+pub async fn get_file_detail(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let meta = match state.metadata.get_by_id(&id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "not found" }))).into_response();
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to get file detail");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "internal error" }))).into_response();
+        }
+    };
+
+    let derivatives = match state.metadata.get_derivatives_by_parent(&id).await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to get derivatives for detail");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "internal error" }))).into_response();
+        }
+    };
+
+    let body = serde_json::json!({
+        "file": meta,
+        "derivatives": derivatives,
+    });
+    (StatusCode::OK, Json(body)).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
