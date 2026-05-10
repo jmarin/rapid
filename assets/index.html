@@ -476,6 +476,52 @@
       margin-top: 2rem;
     }
 
+    .derivatives-section {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .derivatives-label {
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.5rem;
+    }
+
+    .derivative-step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.72rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .derivative-step .step-icon {
+      width: 16px;
+      text-align: center;
+      font-size: 0.8rem;
+      display: inline-block;
+    }
+
+    .derivative-step.done .step-icon { color: var(--success); }
+    .derivative-step.done .step-label { color: var(--text-secondary); }
+
+    .derivative-step.in-progress .step-icon { color: var(--accent); animation: deriv-spin 1s linear infinite; }
+    .derivative-step.in-progress .step-label { color: var(--text-primary); }
+
+    .derivative-step.pending .step-icon { color: var(--text-dim); }
+    .derivative-step.pending .step-label { color: var(--text-dim); }
+
+    .derivative-step.failed .step-icon { color: var(--error); }
+    .derivative-step.failed .step-label { color: var(--error); }
+
+    @keyframes deriv-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     /* Divider line */
     .divider {
       height: 1px;
@@ -517,6 +563,14 @@
   </div>
 
   <script>
+    const DERIVATIVE_LABELS = [
+      { size: "32x32", name: "table thumb" },
+      { size: "80x80", name: "thumbnail" },
+      { size: "250x250", name: "small preview" },
+      { size: "800x600", name: "large preview" },
+      { size: "6000x6000", name: "high-res" },
+    ];
+
     const fileInput = document.getElementById("file-input");
     const uploadBtn = document.getElementById("upload-btn");
     const uploadsDiv = document.getElementById("uploads");
@@ -678,6 +732,7 @@
       uploadsDiv.appendChild(row);
 
       const uploadId = crypto.randomUUID();
+      row.dataset.uploadId = uploadId;
       let partsCompleted = 0;
       const t0 = performance.now(); // start of temp file phase
       let tS3Start = null;
@@ -730,6 +785,66 @@
             clearInterval(timerInterval);
             pct2.textContent = "failed";
             break;
+          case "processing_started": {
+            const labels = DERIVATIVE_LABELS.slice(0, data.total_derivatives);
+            const section = document.createElement('div');
+            section.className = 'derivatives-section';
+            section.innerHTML = '<div class="derivatives-label">Derivatives</div>';
+            labels.forEach((item, i) => {
+              const step = document.createElement('div');
+              step.className = 'derivative-step pending';
+              step.dataset.index = i;
+              step.innerHTML = `<span class="step-icon">○</span><span class="step-label">${item.size} ${item.name}</span>`;
+              section.appendChild(step);
+            });
+            const first = section.querySelector('[data-index="0"]');
+            if (first) {
+              first.className = 'derivative-step in-progress';
+              first.querySelector('.step-icon').textContent = '⟳';
+            }
+            row.appendChild(section);
+            break;
+          }
+          case "derivative_completed": {
+            const section = row.querySelector('.derivatives-section');
+            if (section) {
+              const step = section.querySelector(`[data-index="${data.derivative_number - 1}"]`);
+              if (step) {
+                step.className = 'derivative-step done';
+                step.querySelector('.step-icon').textContent = '✓';
+              }
+              const next = section.querySelector(`[data-index="${data.derivative_number}"]`);
+              if (next && next.classList.contains('pending')) {
+                next.className = 'derivative-step in-progress';
+                next.querySelector('.step-icon').textContent = '⟳';
+              }
+            }
+            break;
+          }
+          case "processing_completed": {
+            const section = row.querySelector('.derivatives-section');
+            if (section) {
+              section.querySelectorAll('.derivative-step').forEach(s => {
+                if (!s.classList.contains('done')) {
+                  s.className = 'derivative-step done';
+                  s.querySelector('.step-icon').textContent = '✓';
+                }
+              });
+            }
+            uploadHandlers.delete(data.upload_id);
+            break;
+          }
+          case "processing_failed": {
+            const section = row.querySelector('.derivatives-section');
+            if (section) {
+              section.querySelectorAll('.derivative-step.in-progress').forEach(s => {
+                s.className = 'derivative-step failed';
+                s.querySelector('.step-icon').textContent = '×';
+              });
+            }
+            uploadHandlers.delete(data.upload_id);
+            break;
+          }
         }
       });
 
@@ -754,7 +869,6 @@
 
         xhr.addEventListener("load", () => {
           clearInterval(timerInterval);
-          uploadHandlers.delete(uploadId);
           if (xhr.status === 201) {
             // If no WS events arrived (small file / single PUT), finalize phase 1 timing
             if (!tS3Start) {
@@ -773,11 +887,16 @@
               playBtn.style.display = "inline-flex";
               playBtn.addEventListener("click", () => openModal(data.id));
             }
+            // Keep handler alive for image processing events
+            if (!data.mime_type || !data.mime_type.startsWith('image/')) {
+              uploadHandlers.delete(uploadId);
+            }
           } else {
             statusDiv.className = "file-status error";
             let msg = xhr.responseText;
             try { msg = JSON.parse(xhr.responseText).error ?? msg; } catch (_) {}
             statusDiv.textContent = `Error ${xhr.status}: ${msg}`;
+            uploadHandlers.delete(uploadId);
           }
           resolve();
         });
