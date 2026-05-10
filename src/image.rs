@@ -9,6 +9,13 @@ pub struct ResizeSpec {
     pub label: &'static str,
 }
 
+/// Table thumbnail: 32x32
+pub const TABLE_THUMB: ResizeSpec = ResizeSpec {
+    width: 32,
+    height: 32,
+    label: "table_thumb",
+};
+
 /// Thumbnail: 80x80
 pub const THUMBNAIL: ResizeSpec = ResizeSpec {
     width: 80,
@@ -38,7 +45,7 @@ pub const HIGH_RES: ResizeSpec = ResizeSpec {
 };
 
 /// The three standard preview sizes generated for every upload.
-pub const STANDARD_SIZES: [ResizeSpec; 3] = [THUMBNAIL, SMALL_PREVIEW, LARGE_PREVIEW];
+pub const STANDARD_SIZES: [ResizeSpec; 4] = [TABLE_THUMB, THUMBNAIL, SMALL_PREVIEW, LARGE_PREVIEW];
 
 /// Threshold in pixels: if either dimension of the original exceeds this,
 /// a high-resolution derivative is also generated.
@@ -174,7 +181,7 @@ mod tests {
 
         let results = generate_derivatives(&input, dir.path()).unwrap();
         // Small image: 3 standard sizes, no high-res
-        assert_eq!(results.len(), 3);
+        assert_eq!(results.len(), 4);
         for (_, path) in &results {
             assert!(path.exists());
         }
@@ -186,8 +193,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let results = generate_derivatives(&input, dir.path()).unwrap();
-        // Large image: 3 standard + 1 high-res
-        assert_eq!(results.len(), 4);
+        // Large image: 4 standard + 1 high-res
+        assert_eq!(results.len(), 5);
         let labels: Vec<&str> = results.iter().map(|(l, _)| l.as_str()).collect();
         assert!(labels.contains(&"high_res"));
     }
