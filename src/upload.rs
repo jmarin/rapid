@@ -317,16 +317,12 @@ async fn process_image_derivatives(
         })
         .collect();
 
-    // Decode image once, resize either in parallel (rayon) or sequentially.
+    // Resize all derivatives sequentially — libvips manages its own thread pool.
     let blocking_input = temp_path.clone();
     let spec_outputs_clone = spec_outputs.clone();
     let resize_start = std::time::Instant::now();
     let resize_results = tokio::task::spawn_blocking(move || {
-        if parallel {
-            image::resize_all_parallel(&blocking_input, &spec_outputs_clone)
-        } else {
-            image::resize_all_sequential(&blocking_input, &spec_outputs_clone)
-        }
+        image::resize_all(&blocking_input, &spec_outputs_clone)
     })
     .await;
     let resize_elapsed = resize_start.elapsed();
