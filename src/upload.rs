@@ -69,6 +69,12 @@ pub async fn upload_file(
         .and_then(|v| v.to_str().ok())
         .map(String::from);
 
+    let file_name = headers
+        .get("x-file-name")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
     // Stream request body to a temp file
     let stream = body
         .into_data_stream()
@@ -159,6 +165,15 @@ pub async fn upload_file(
             &state, &temp_path, &file_id, size_bytes, &mime_type, &notifier,
         )
         .await?;
+    }
+
+    // Save file metadata to SQLite
+    if let Err(e) = state
+        .metadata
+        .insert(&file_id, &file_name, size_bytes as i64, &mime_type)
+        .await
+    {
+        tracing::error!(file_id = %file_id, error = %e, "failed to save file metadata");
     }
 
     // Clean up progress entry from shared map

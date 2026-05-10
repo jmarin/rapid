@@ -2,6 +2,7 @@ pub mod download;
 pub mod error;
 pub mod image;
 pub mod magic;
+pub mod metadata;
 pub mod upload;
 pub mod ws;
 
@@ -33,6 +34,8 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+use crate::metadata::MetadataStore;
+
 #[derive(Clone)]
 pub struct AppState {
     pub upload_dir: PathBuf,
@@ -40,6 +43,7 @@ pub struct AppState {
     pub s3_bucket: String,
     pub upload_semaphore: Arc<Semaphore>,
     pub upload_progress: Arc<RwLock<HashMap<String, mpsc::Sender<ws::UploadEvent>>>>,
+    pub metadata: MetadataStore,
 }
 
 impl Application {
@@ -63,6 +67,8 @@ impl Application {
             .route("/health", get(liveness))
             .route("/ready", get(readiness))
             .route("/files/{id}", get(download::download_file))
+            .route("/files/{id}/metadata", get(metadata::get_file_metadata))
+            .route("/api/metadata", get(metadata::list_file_metadata))
             .route("/ws/upload-progress", get(ws::ws_upload_progress))
             .merge(upload_route)
             .layer(cors)
@@ -78,7 +84,14 @@ impl Application {
 
     pub async fn run(self) -> Result<(), std::io::Error> {
         tracing::info!("listening on {}", &self.address);
-        self.server.await
+        self.server
+            .with_graceful_shutdown(async {
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("failed to listen for Ctrl-C");
+                tracing::info!("shutdown signal received");
+            })
+            .await
     }
 }
 
