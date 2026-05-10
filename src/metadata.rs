@@ -1,6 +1,6 @@
 use axum::{Json, extract::{Path, Query, State}, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, SqlitePool, sqlite::SqlitePoolOptions};
 
 use crate::AppState;
 
@@ -49,7 +49,24 @@ pub fn clamp_page(page: Option<i64>) -> i64 {
 
 impl MetadataStore {
     pub async fn new(db_url: &str) -> Result<Self, sqlx::Error> {
-        let pool = SqlitePool::connect(db_url).await?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("PRAGMA journal_mode=WAL")
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("PRAGMA busy_timeout=5000")
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("PRAGMA synchronous=NORMAL")
+                        .execute(&mut *conn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(db_url)
+            .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self { pool })
     }
