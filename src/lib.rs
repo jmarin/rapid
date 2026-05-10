@@ -1,5 +1,6 @@
 pub mod download;
 pub mod error;
+pub mod image;
 pub mod magic;
 pub mod upload;
 pub mod ws;
