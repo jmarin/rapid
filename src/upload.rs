@@ -61,13 +61,14 @@ fn calculate_chunk_size(file_size: u64) -> u64 {
     chunk_size
 }
 
+use tempfile::NamedTempFile;
+
 pub async fn upload_file(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, UploadError> {
     let file_id = Uuid::new_v4().to_string();
-    let temp_path = state.upload_dir.join(&file_id);
 
     let upload_id = headers
         .get("x-upload-id")
@@ -80,7 +81,10 @@ pub async fn upload_file(
         .unwrap_or("unknown")
         .to_string();
 
-    // Stream request body to a temp file
+    // Stream request body to a temp file (auto-deleted on drop)
+    let temp_file = NamedTempFile::new_in(&state.upload_dir)?;
+    let temp_path = temp_file.path().to_path_buf();
+
     let stream = body
         .into_data_stream()
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
@@ -90,12 +94,10 @@ pub async fn upload_file(
     let size_bytes = match tokio::io::copy(&mut reader, &mut file).await {
         Ok(size) => size,
         Err(e) => {
-            let _ = tokio::fs::remove_file(&temp_path).await;
             return Err(UploadError::Io(e));
         }
     };
     file.flush().await?;
-    drop(file); // This is not necessary on Linux environments, but might be necessary on Windows to remove the write handle before reading the file
 
     // Look up progress sender after body is fully received
     let progress_tx: Option<mpsc::Sender<UploadEvent>> = if let Some(ref uid) = upload_id {
@@ -110,7 +112,6 @@ pub async fn upload_file(
 
     // Reject files that are not image or video: delete temp file, notify client, and return 422
     if !is_allowed_mime_type(&mime_type) {
-        let _ = tokio::fs::remove_file(&temp_path).await;
         if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
             let _ = tx
                 .send(UploadEvent::UploadFailed {
@@ -186,9 +187,6 @@ pub async fn upload_file(
         let mut map = state.upload_progress.write().await;
         map.remove(uid);
     }
-
-    // Clean up temp file
-    let _ = tokio::fs::remove_file(&temp_path).await;
 
     let response = UploadResponse {
         id: file_id.clone(),

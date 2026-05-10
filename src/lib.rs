@@ -48,7 +48,7 @@ pub struct AppState {
 
 impl Application {
     pub async fn build(app_state: AppState, address: &str) -> Result<Self, Box<dyn Error>> {
-        let allowed_origins = ["http:://localhost:3000".parse()?];
+        let allowed_origins = ["http://localhost:3000".parse()?];
 
         let cors = CorsLayer::new()
             .allow_methods([Method::GET, Method::POST])
