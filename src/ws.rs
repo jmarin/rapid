@@ -9,7 +9,12 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
+use std::time::Duration;
+
 use crate::AppState;
+
+const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+const WS_PING_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Messages the client sends over the WebSocket.
 #[derive(Deserialize)]
@@ -60,36 +65,63 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     // Track which upload_ids this connection subscribed to, for cleanup.
     let subscribed_ids = tokio::sync::Mutex::new(Vec::<String>::new());
 
-    // Forward events from mpsc channel -> WebSocket
+    // Forward events from mpsc channel -> WebSocket, with periodic pings
     let send_task = tokio::spawn(async move {
-        while let Some(event) = event_rx.recv().await {
-            if let Ok(json) = serde_json::to_string(&event)
-                && ws_tx.send(Message::Text(json.into())).await.is_err()
-            {
-                break;
+        let mut ping_interval = tokio::time::interval(WS_PING_INTERVAL);
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            // Executes futures concurrently and returns the first one, cancelling the others
+            tokio::select! {
+                event = event_rx.recv() => {
+                    match event {
+                        Some(event) => {
+                            if let Ok(json) = serde_json::to_string(&event) {
+                                if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if ws_tx.send(Message::Ping(vec![].into())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
 
-    // Read client messages from WebSocket (subscribe commands)
+    // Read client messages with idle timeout
     let progress_map = state.upload_progress.clone();
     let recv_task = async {
-        while let Some(Ok(msg)) = ws_rx.next().await {
-            match msg {
-                Message::Text(text) => {
-                    if let Ok(cmd) = serde_json::from_str::<WsCommand>(&text) {
-                        match cmd {
-                            WsCommand::Subscribe { upload_id } => {
-                                progress_map.insert(upload_id.clone(), event_tx.clone());
-                                subscribed_ids.lock().await.push(upload_id.clone());
-
-                                let _ = event_tx.send(UploadEvent::Subscribed { upload_id }).await;
+        loop {
+            match tokio::time::timeout(WS_IDLE_TIMEOUT, ws_rx.next()).await {
+                Ok(Some(Ok(msg))) => match msg {
+                    Message::Text(text) => {
+                        if let Ok(cmd) = serde_json::from_str::<WsCommand>(&text) {
+                            match cmd {
+                                WsCommand::Subscribe { upload_id } => {
+                                    progress_map.insert(upload_id.clone(), event_tx.clone());
+                                    subscribed_ids.lock().await.push(upload_id.clone());
+                                    let _ =
+                                        event_tx.send(UploadEvent::Subscribed { upload_id }).await;
+                                }
                             }
                         }
                     }
+                    Message::Pong(_) => {} // keep-alive response, resets idle timer
+                    Message::Close(_) => break,
+                    _ => {}
+                },
+                Ok(Some(Err(_))) => break, // WebSocket error
+                Ok(None) => break,         // Stream ended
+                Err(_) => {
+                    tracing::debug!("WebSocket idle timeout, closing connection");
+                    break;
                 }
-                Message::Close(_) => break,
-                _ => {}
             }
         }
     };
