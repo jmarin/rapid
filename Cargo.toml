@@ -28,6 +28,7 @@ tempfile = "3"
 dashmap = "6"
 tower = { version = "0.5", features = ["timeout"] }
 image = "0.25"
+rayon = "1"
 
 # Optimize image processing even in debug/test builds — Lanczos3 resizing
 # is unusably slow without optimizations (40s+ for a single resize).

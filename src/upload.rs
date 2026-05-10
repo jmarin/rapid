@@ -17,7 +17,7 @@ use tokio::task::JoinSet;
 use tokio_util::io::StreamReader;
 use uuid::Uuid;
 
-use crate::{AppState, error::UploadError, image::{self, STANDARD_SIZES, HIGH_RES, ImageError}, magic::mime_type_magic, ws::UploadEvent};
+use crate::{AppState, error::UploadError, image::{self, STANDARD_SIZES, HIGH_RES}, magic::mime_type_magic, ws::UploadEvent};
 
 const MIN_CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8MB
 const MAX_PARTS: u64 = 10_000;
@@ -297,8 +297,61 @@ async fn process_image_derivatives(
         }
     };
 
-    for (i, spec) in specs.iter().enumerate() {
-        let size_label = format!("{}x{}", spec.width, spec.height);
+    // Pre-compute output paths for each spec so the blocking closure can
+    // write all derivatives in one shot (decode once, resize in parallel).
+    let spec_outputs: Vec<(image::ResizeSpec, std::path::PathBuf)> = specs
+        .iter()
+        .map(|spec| {
+            let size_label = format!("{}x{}", spec.width, spec.height);
+            let out = derivative_dir
+                .path()
+                .join(format!("{}_{}.jpg", file_id, size_label));
+            (*spec, out)
+        })
+        .collect();
+
+    // Single spawn_blocking: decode the image once and resize all specs in parallel.
+    let blocking_input = temp_path.clone();
+    let spec_outputs_clone = spec_outputs.clone();
+    let resize_results = tokio::task::spawn_blocking(move || {
+        image::resize_all_parallel(&blocking_input, &spec_outputs_clone)
+    })
+    .await;
+
+    let per_spec_results = match resize_results {
+        Ok(Ok(results)) => results,
+        Ok(Err(e)) => {
+            tracing::error!(file_id = %file_id, error = %e, "failed to decode image for derivatives");
+            if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+                let _ = tx
+                    .send(UploadEvent::ProcessingFailed {
+                        upload_id: uid.clone(),
+                        error: e.to_string(),
+                    })
+                    .await;
+            }
+            return;
+        }
+        Err(e) => {
+            tracing::error!(file_id = %file_id, error = %e, "spawn_blocking panicked during image processing");
+            if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+                let _ = tx
+                    .send(UploadEvent::ProcessingFailed {
+                        upload_id: uid.clone(),
+                        error: "image processing task panicked".to_string(),
+                    })
+                    .await;
+            }
+            return;
+        }
+    };
+
+    // Now iterate through results: insert DB rows, upload to S3, send WS events.
+    for (i, (_label, output_path, resize_result)) in per_spec_results.into_iter().enumerate() {
+        let size_label = format!(
+            "{}x{}",
+            specs[i].width, specs[i].height
+        );
         let s3_key = format!("{}_{}", file_id, size_label);
         let derivative_id = Uuid::new_v4().to_string();
 
@@ -310,8 +363,8 @@ async fn process_image_derivatives(
                 &file_id,
                 &size_label,
                 &s3_key,
-                spec.width as i64,
-                spec.height as i64,
+                specs[i].width as i64,
+                specs[i].height as i64,
                 "processing",
             )
             .await
@@ -320,45 +373,23 @@ async fn process_image_derivatives(
             continue;
         }
 
-        // Resize image (CPU-bound work on blocking thread)
-        let input = temp_path.clone();
-        let output = derivative_dir
-            .path()
-            .join(format!("{}_{}.jpg", file_id, size_label));
-        let spec_copy = *spec;
-        let resize_result = tokio::task::spawn_blocking(move || {
-            image::resize_image(&input, &output, &spec_copy)?;
-            Ok::<std::path::PathBuf, ImageError>(output)
-        })
-        .await;
-
-        let output_path = match resize_result {
-            Ok(Ok(path)) => path,
-            Ok(Err(e)) => {
-                tracing::error!(file_id = %file_id, size = %size_label, error = %e, "image resize failed");
-                let _ = state
-                    .metadata
-                    .update_derivative_status(&derivative_id, "failed")
+        // Check if resize succeeded
+        if let Err(e) = resize_result {
+            tracing::error!(file_id = %file_id, size = %size_label, error = %e, "image resize failed");
+            let _ = state
+                .metadata
+                .update_derivative_status(&derivative_id, "failed")
+                .await;
+            if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+                let _ = tx
+                    .send(UploadEvent::ProcessingFailed {
+                        upload_id: uid.clone(),
+                        error: format!("resize failed for {}: {}", size_label, e),
+                    })
                     .await;
-                if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
-                    let _ = tx
-                        .send(UploadEvent::ProcessingFailed {
-                            upload_id: uid.clone(),
-                            error: format!("resize failed for {}: {}", size_label, e),
-                        })
-                        .await;
-                }
-                continue;
             }
-            Err(e) => {
-                tracing::error!(file_id = %file_id, size = %size_label, error = %e, "spawn_blocking panicked");
-                let _ = state
-                    .metadata
-                    .update_derivative_status(&derivative_id, "failed")
-                    .await;
-                continue;
-            }
-        };
+            continue;
+        }
 
         // Upload derivative to S3
         let body_stream = match ByteStream::from_path(&output_path).await {

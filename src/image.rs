@@ -1,5 +1,7 @@
 use image::imageops::FilterType;
-use std::path::Path;
+use image::DynamicImage;
+use rayon::prelude::*;
+use std::path::{Path, PathBuf};
 
 /// Predefined output sizes for image transformations.
 #[derive(Debug, Clone, Copy)]
@@ -55,13 +57,25 @@ pub const HIGH_RES_THRESHOLD: u32 = 3000;
 ///
 /// The output is written to `output_path` in the same format as the input.
 /// Uses Lanczos3 filtering for high-quality downscaling.
+/// Never upscales: if the image already fits within the spec, it is saved as-is.
 pub fn resize_image(
     input_path: &Path,
     output_path: &Path,
     spec: &ResizeSpec,
 ) -> Result<(), ImageError> {
     let img = image::open(input_path).map_err(ImageError::Decode)?;
-    // Never upscale: if the image already fits within the spec, save as-is.
+    resize_from_decoded(&img, output_path, spec)
+}
+
+/// Resize a pre-decoded image to fit within the given dimensions.
+///
+/// This avoids re-decoding the source when generating multiple derivatives.
+/// Never upscales: if the image already fits within the spec, it is saved as-is.
+pub fn resize_from_decoded(
+    img: &DynamicImage,
+    output_path: &Path,
+    spec: &ResizeSpec,
+) -> Result<(), ImageError> {
     if img.width() <= spec.width && img.height() <= spec.height {
         img.save(output_path).map_err(ImageError::Encode)?;
     } else {
@@ -85,16 +99,17 @@ pub fn needs_high_res(input_path: &Path) -> Result<bool, ImageError> {
 
 /// Generate all standard derivatives for an uploaded image.
 ///
-/// Returns a list of `(label, output_path)` pairs for each derivative that was
-/// successfully created. If the original exceeds [`HIGH_RES_THRESHOLD`], a
-/// high-resolution derivative is included as well.
+/// Decodes the source image once and resizes all derivatives in parallel
+/// using rayon. Returns a list of `(label, output_path)` pairs for each
+/// derivative that was successfully created. If the original exceeds
+/// [`HIGH_RES_THRESHOLD`], a high-resolution derivative is included as well.
 ///
 /// `output_dir` is the directory where derived files will be written.
-/// Output filenames are `{stem}_{label}.{ext}`.
+/// Output filenames are `{stem}_{width}x{height}.{ext}`.
 pub fn generate_derivatives(
     input_path: &Path,
     output_dir: &Path,
-) -> Result<Vec<(String, std::path::PathBuf)>, ImageError> {
+) -> Result<Vec<(String, PathBuf)>, ImageError> {
     let stem = input_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -104,19 +119,48 @@ pub fn generate_derivatives(
         .and_then(|s| s.to_str())
         .unwrap_or("jpg");
 
-    let mut specs: Vec<ResizeSpec> = STANDARD_SIZES.to_vec();
+    // Decode the source image once.
+    let img = image::open(input_path).map_err(ImageError::Decode)?;
 
-    if needs_high_res(input_path)? {
+    let mut specs: Vec<ResizeSpec> = STANDARD_SIZES.to_vec();
+    if img.width() > HIGH_RES_THRESHOLD || img.height() > HIGH_RES_THRESHOLD {
         specs.push(HIGH_RES);
     }
 
-    let mut results = Vec::with_capacity(specs.len());
-    for spec in &specs {
-        let out_name = format!("{stem}_{}x{}.{ext}", spec.width, spec.height);
-        let out_path = output_dir.join(&out_name);
-        resize_image(input_path, &out_path, spec)?;
-        results.push((spec.label.to_string(), out_path));
-    }
+    // Resize all specs in parallel — each closure borrows &img (read-only).
+    let results: Vec<Result<(String, PathBuf), ImageError>> = specs
+        .par_iter()
+        .map(|spec| {
+            let out_name = format!("{stem}_{}x{}.{ext}", spec.width, spec.height);
+            let out_path = output_dir.join(&out_name);
+            resize_from_decoded(&img, &out_path, spec)?;
+            Ok((spec.label.to_string(), out_path))
+        })
+        .collect();
+
+    // Collect successes, propagate first error.
+    results.into_iter().collect()
+}
+
+/// Decode the image at `input_path` and resize it to all given `specs` in
+/// parallel using rayon.
+///
+/// Returns a list of `(label, output_path)` for each successfully resized
+/// derivative. Errors for individual specs are returned per-entry so the
+/// caller can handle partial failures.
+pub fn resize_all_parallel(
+    input_path: &Path,
+    specs: &[(ResizeSpec, PathBuf)],
+) -> Result<Vec<(String, PathBuf, Result<(), ImageError>)>, ImageError> {
+    let img = image::open(input_path).map_err(ImageError::Decode)?;
+
+    let results: Vec<(String, PathBuf, Result<(), ImageError>)> = specs
+        .par_iter()
+        .map(|(spec, out_path)| {
+            let result = resize_from_decoded(&img, out_path, spec);
+            (spec.label.to_string(), out_path.clone(), result)
+        })
+        .collect();
 
     Ok(results)
 }
