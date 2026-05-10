@@ -37,6 +37,13 @@ Upload progress is tracked via a shared map (`upload_progress`) that maps client
 
 This map uses [DashMap](https://docs.rs/dashmap), a concurrent hash map with fine-grained per-shard locking, instead of a `RwLock<HashMap>`. Under concurrent uploads with active WebSocket subscribers, a single `RwLock` becomes a serialization bottleneck — every progress lookup or subscription insert contends on the same lock. DashMap shards the map internally so that operations on different keys rarely contend, giving near-linear scalability as concurrency increases.
 
+### WebSocket Architecture
+
+Each WebSocket connection uses two layers of channel splitting to allow concurrent reading and writing without shared mutable state:
+
+- **WebSocket split** (`socket.split()`): separates the socket into independent write (`ws_tx`) and read (`ws_rx`) halves so they can be used in concurrent tasks — a send task that pushes events to the client and a receive task that reads subscribe commands.
+- **mpsc channel** (`tokio::sync::mpsc`): acts as an indirection layer between upload workers and the WebSocket. When a client subscribes to an upload ID, a clone of the channel's sender is stored in the shared `upload_progress` map. Upload workers send progress events into this sender from any task, and the send task drains the receiver and serializes events as JSON onto the WebSocket. This decouples upload workers from the WebSocket lifetime — multiple concurrent uploads can emit events (multi-producer) while a single task writes them to the socket (single-consumer).
+
 ### Project structure
 
 
