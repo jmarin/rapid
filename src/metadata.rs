@@ -90,6 +90,14 @@ impl MetadataStore {
 
         Ok((items, total.0))
     }
+    pub async fn delete(&self, id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM file_metadata WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn close(&self) {
         self.pool.close().await;
     }
@@ -109,6 +117,47 @@ pub async fn get_file_metadata(
             tracing::error!(error = %e, "failed to query file metadata");
             let body = serde_json::json!({ "error": "internal error" });
             (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
+        }
+    }
+}
+
+pub async fn delete_file(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    // Look up metadata first to confirm it exists
+    let meta = match state.metadata.get_by_id(&id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "not found" }))).into_response();
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to query metadata for delete");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "internal error" }))).into_response();
+        }
+    };
+
+    // Delete from S3
+    if let Err(e) = state.s3_client
+        .delete_object()
+        .bucket(&state.s3_bucket)
+        .key(&id)
+        .send()
+        .await
+    {
+        tracing::error!(error = %e, id = %id, "failed to delete S3 object");
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "failed to delete file from storage" }))).into_response();
+    }
+
+    // Delete from DB
+    match state.metadata.delete(&id).await {
+        Ok(_) => {
+            tracing::info!(id = %id, file_name = %meta.file_name, "deleted file");
+            (StatusCode::OK, Json(serde_json::json!({ "deleted": id }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to delete metadata");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "file deleted from storage but metadata removal failed" }))).into_response()
         }
     }
 }
