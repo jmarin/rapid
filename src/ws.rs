@@ -53,6 +53,12 @@ pub enum UploadEvent {
         total_derivatives: u32,
     },
 
+    #[serde(rename = "decoding_completed")]
+    DecodingCompleted {
+        upload_id: String,
+        elapsed_ms: u128,
+    },
+
     #[serde(rename = "derivative_completed")]
     DerivativeCompleted {
         upload_id: String,

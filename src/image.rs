@@ -2,6 +2,15 @@ use image::imageops::FilterType;
 use image::DynamicImage;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// Result of a batch resize operation, including decode timing.
+pub struct ResizeAllResult {
+    /// Time spent decoding the source image.
+    pub decode_elapsed: Duration,
+    /// Per-spec results: (label, output_path, resize result).
+    pub items: Vec<(String, PathBuf, Result<(), ImageError>)>,
+}
 
 /// Predefined output sizes for image transformations.
 #[derive(Debug, Clone, Copy)]
@@ -151,10 +160,12 @@ pub fn generate_derivatives(
 pub fn resize_all_parallel(
     input_path: &Path,
     specs: &[(ResizeSpec, PathBuf)],
-) -> Result<Vec<(String, PathBuf, Result<(), ImageError>)>, ImageError> {
+) -> Result<ResizeAllResult, ImageError> {
+    let t0 = std::time::Instant::now();
     let img = image::open(input_path).map_err(ImageError::Decode)?;
+    let decode_elapsed = t0.elapsed();
 
-    let results: Vec<(String, PathBuf, Result<(), ImageError>)> = specs
+    let items: Vec<(String, PathBuf, Result<(), ImageError>)> = specs
         .par_iter()
         .map(|(spec, out_path)| {
             let result = resize_from_decoded(&img, out_path, spec);
@@ -162,7 +173,7 @@ pub fn resize_all_parallel(
         })
         .collect();
 
-    Ok(results)
+    Ok(ResizeAllResult { decode_elapsed, items })
 }
 
 /// Decode the image at `input_path` and resize it to all given `specs`
@@ -170,10 +181,12 @@ pub fn resize_all_parallel(
 pub fn resize_all_sequential(
     input_path: &Path,
     specs: &[(ResizeSpec, PathBuf)],
-) -> Result<Vec<(String, PathBuf, Result<(), ImageError>)>, ImageError> {
+) -> Result<ResizeAllResult, ImageError> {
+    let t0 = std::time::Instant::now();
     let img = image::open(input_path).map_err(ImageError::Decode)?;
+    let decode_elapsed = t0.elapsed();
 
-    let results: Vec<(String, PathBuf, Result<(), ImageError>)> = specs
+    let items: Vec<(String, PathBuf, Result<(), ImageError>)> = specs
         .iter()
         .map(|(spec, out_path)| {
             let result = resize_from_decoded(&img, out_path, spec);
@@ -181,7 +194,7 @@ pub fn resize_all_sequential(
         })
         .collect();
 
-    Ok(results)
+    Ok(ResizeAllResult { decode_elapsed, items })
 }
 
 /// Errors that can occur during image processing.

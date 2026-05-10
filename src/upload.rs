@@ -333,7 +333,19 @@ async fn process_image_derivatives(
     tracing::info!(file_id = %file_id, elapsed_ms = resize_elapsed.as_millis(), parallel = parallel, "all derivatives resized");
 
     let per_spec_results = match resize_results {
-        Ok(Ok(results)) => results,
+        Ok(Ok(batch)) => {
+            // Send decode timing event
+            tracing::info!(file_id = %file_id, decode_ms = batch.decode_elapsed.as_millis(), "image decoded");
+            if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+                let _ = tx
+                    .send(UploadEvent::DecodingCompleted {
+                        upload_id: uid.clone(),
+                        elapsed_ms: batch.decode_elapsed.as_millis(),
+                    })
+                    .await;
+            }
+            batch.items
+        }
         Ok(Err(e)) => {
             tracing::error!(file_id = %file_id, error = %e, "failed to decode image for derivatives");
             if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
