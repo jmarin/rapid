@@ -10,8 +10,9 @@ use axum::{
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::io::StreamReader;
 use uuid::Uuid;
@@ -20,6 +21,7 @@ use crate::{AppState, error::UploadError, magic::mime_type_magic, ws::UploadEven
 
 const MIN_CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8MB
 const MAX_PARTS: u64 = 10_000;
+const SEMAPHORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 struct ProgressNotifier<'a> {
     tx: &'a mpsc::Sender<UploadEvent>,
@@ -234,7 +236,8 @@ async fn multipart_upload(
         .await;
     }
 
-    // Upload parts in parallel, throttled by the global semaphore
+    // Upload parts in parallel, throttled by both global AND per-upload semaphores
+    let per_upload_sem = Arc::new(Semaphore::new(state.max_parts_per_upload));
     let mut join_set = JoinSet::new();
 
     for part_idx in 0..num_parts {
@@ -248,11 +251,27 @@ async fn multipart_upload(
         let key = key.to_string();
         let upload_id = upload_id.clone();
         let temp_path = temp_path.to_path_buf();
-        let sem = state.upload_semaphore.clone();
+        let global_sem = state.upload_semaphore.clone();
+        let local_sem = per_upload_sem.clone();
 
         join_set.spawn(async move {
-            // Acquire global permit — suspends if all permits are taken
-            let _permit = sem.acquire().await.map_err(|e| e.to_string())?;
+            // Acquire per-upload permit first (fast, local)
+            let _local_permit = tokio::time::timeout(
+                SEMAPHORE_TIMEOUT,
+                local_sem.acquire(),
+            )
+            .await
+            .map_err(|_| "per-upload semaphore acquisition timed out".to_string())?
+            .map_err(|e| e.to_string())?;
+
+            // Acquire global permit with timeout
+            let _global_permit = tokio::time::timeout(
+                SEMAPHORE_TIMEOUT,
+                global_sem.acquire(),
+            )
+            .await
+            .map_err(|_| "global semaphore acquisition timed out".to_string())?
+            .map_err(|e| e.to_string())?;
 
             // Read this part's chunk in a single spawn_blocking call.
             // Each task opens its own FD (safe for parallel reads at different offsets).

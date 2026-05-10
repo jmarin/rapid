@@ -42,6 +42,7 @@ pub struct AppState {
     pub s3_client: aws_sdk_s3::Client,
     pub s3_bucket: String,
     pub upload_semaphore: Arc<Semaphore>,
+    pub max_parts_per_upload: usize,
     pub upload_progress: Arc<RwLock<HashMap<String, mpsc::Sender<ws::UploadEvent>>>>,
     pub metadata: MetadataStore,
 }

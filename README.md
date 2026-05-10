@@ -22,7 +22,14 @@ RAPID is a web service that allows a user to upload an image to a server; upon u
 
 ### Technology stack
 
+### Upload Concurrency
 
+Multipart uploads to S3 are governed by two semaphores:
+
+- **Global semaphore** (`RAPID_MAX_INFLIGHT_PARTS`, default 64): limits the total number of S3 part uploads in flight across all uploads. This protects local resources (memory, file descriptors, network connections) — not S3 itself, which scales horizontally.
+- **Per-upload semaphore** (derived as `global / 4`, minimum 4): limits how many parts a single upload can have in flight at once. This enforces fairness — without it, one large file (e.g. 10GB = 1,250 parts) could monopolize all global permits and starve every other concurrent upload.
+
+Both semaphores use a 10-minute acquisition timeout to guard against deadlocks without rejecting legitimate traffic under load.
 
 ### Project structure
 
