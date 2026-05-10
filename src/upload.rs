@@ -313,10 +313,13 @@ async fn process_image_derivatives(
     // Single spawn_blocking: decode the image once and resize all specs in parallel.
     let blocking_input = temp_path.clone();
     let spec_outputs_clone = spec_outputs.clone();
+    let resize_start = std::time::Instant::now();
     let resize_results = tokio::task::spawn_blocking(move || {
         image::resize_all_parallel(&blocking_input, &spec_outputs_clone)
     })
     .await;
+    let resize_elapsed = resize_start.elapsed();
+    tracing::info!(file_id = %file_id, elapsed_ms = resize_elapsed.as_millis(), "all derivatives resized");
 
     let per_spec_results = match resize_results {
         Ok(Ok(results)) => results,
