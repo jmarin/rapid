@@ -354,7 +354,6 @@
     const pageInfo = document.getElementById("page-info");
 
     let currentPage = 1;
-    let totalPages = 1;
 
     // Read initial page from URL
     const urlPage = new URLSearchParams(location.search).get("page");
@@ -378,9 +377,7 @@
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
 
-        totalPages = data.total_pages;
-
-        if (data.total === 0) {
+        if (data.items.length === 0 && data.page === 1) {
           contentEl.innerHTML = '<div class="empty-state">No images uploaded yet.</div>';
           return;
         }
@@ -404,9 +401,9 @@
         contentEl.innerHTML = html;
 
         // Update pagination
-        pageInfo.textContent = `${data.page} / ${totalPages}`;
+        pageInfo.textContent = `Page ${data.page}`;
         prevBtn.disabled = data.page <= 1;
-        nextBtn.disabled = data.page >= totalPages;
+        nextBtn.disabled = !data.has_next;
         paginationEl.style.display = "flex";
 
       } catch (e) {
@@ -415,7 +412,7 @@
     }
 
     prevBtn.addEventListener("click", () => { if (currentPage > 1) loadPage(currentPage - 1); });
-    nextBtn.addEventListener("click", () => { if (currentPage < totalPages) loadPage(currentPage + 1); });
+    nextBtn.addEventListener("click", () => loadPage(currentPage + 1));
 
     // Delete with confirmation
     document.addEventListener("click", (e) => {
