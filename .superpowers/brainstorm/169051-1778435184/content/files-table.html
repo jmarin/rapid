@@ -1,0 +1,76 @@
+<h2>Files Table — With Status Column</h2>
+<p class="subtitle">Renamed from "Metadata" to "Files". Rows are clickable, linking to a detail page. New status column shows processing state.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Files Page — Table View</div>
+  <div class="mockup-body" style="background:#0b0c10; padding:24px; font-family:'IBM Plex Mono',monospace;">
+    
+    <div style="max-width:750px;">
+      <!-- Page header -->
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+        <h1 style="font-family:'Anybody',sans-serif; font-size:22px; color:#e8eaed; font-weight:600; margin:0;">Files</h1>
+        <span style="background:rgba(240,192,64,0.15); color:#f0c040; font-size:10px; padding:3px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.5px;">files</span>
+      </div>
+
+      <!-- Table -->
+      <div style="background:#13151a; border:1px solid #2a2f3a; border-radius:12px; overflow:hidden;">
+        <!-- Header row -->
+        <div style="display:grid; grid-template-columns:1fr 2fr 80px 100px 120px 80px; padding:10px 16px; background:#1a1d24; border-bottom:1px solid #2a2f3a; font-size:10px; color:#5a6173; text-transform:uppercase; letter-spacing:0.5px;">
+          <span>ID</span>
+          <span>File Name</span>
+          <span>Size</span>
+          <span>MIME</span>
+          <span>Status</span>
+          <span></span>
+        </div>
+        
+        <!-- Row 1: Ready -->
+        <div style="display:grid; grid-template-columns:1fr 2fr 80px 100px 120px 80px; padding:12px 16px; border-bottom:1px solid #2a2f3a; align-items:center; cursor:pointer; transition:background 0.15s;" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">
+          <span style="font-size:11px; color:#8b90a3;">2c7a…5bbc</span>
+          <span style="font-size:11px; color:#e8eaed;">beach_sunset.jpg</span>
+          <span style="font-size:11px; color:#8b90a3;">4.2 MB</span>
+          <span style="font-size:11px; color:#8b90a3;">image/jpeg</span>
+          <span style="font-size:10px; color:#34d399; background:rgba(52,211,153,0.1); padding:3px 8px; border-radius:4px; display:inline-block;">✓ Ready (4)</span>
+          <span style="font-size:11px; color:#f87171; cursor:pointer; text-align:center;">Delete</span>
+        </div>
+        
+        <!-- Row 2: Processing -->
+        <div style="display:grid; grid-template-columns:1fr 2fr 80px 100px 120px 80px; padding:12px 16px; border-bottom:1px solid #2a2f3a; align-items:center; cursor:pointer; transition:background 0.15s;" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">
+          <span style="font-size:11px; color:#8b90a3;">a1f3…92de</span>
+          <span style="font-size:11px; color:#e8eaed;">portrait_raw.png</span>
+          <span style="font-size:11px; color:#8b90a3;">12.8 MB</span>
+          <span style="font-size:11px; color:#8b90a3;">image/png</span>
+          <span style="font-size:10px; color:#f0c040; background:rgba(240,192,64,0.1); padding:3px 8px; border-radius:4px; display:inline-block;">⟳ Processing</span>
+          <span style="font-size:11px; color:#f87171; cursor:pointer; text-align:center;">Delete</span>
+        </div>
+        
+        <!-- Row 3: Video (no derivatives) -->
+        <div style="display:grid; grid-template-columns:1fr 2fr 80px 100px 120px 80px; padding:12px 16px; border-bottom:1px solid #2a2f3a; align-items:center; cursor:pointer; transition:background 0.15s;" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">
+          <span style="font-size:11px; color:#8b90a3;">f82c…11ab</span>
+          <span style="font-size:11px; color:#e8eaed;">demo_clip.mp4</span>
+          <span style="font-size:11px; color:#8b90a3;">58 MB</span>
+          <span style="font-size:11px; color:#8b90a3;">video/mp4</span>
+          <span style="font-size:10px; color:#5a6173; padding:3px 8px;">—</span>
+          <span style="font-size:11px; color:#f87171; cursor:pointer; text-align:center;">Delete</span>
+        </div>
+        
+        <!-- Row 4: Ready (3 derivatives, no high-res) -->
+        <div style="display:grid; grid-template-columns:1fr 2fr 80px 100px 120px 80px; padding:12px 16px; align-items:center; cursor:pointer; transition:background 0.15s;" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">
+          <span style="font-size:11px; color:#8b90a3;">d94e…7f23</span>
+          <span style="font-size:11px; color:#e8eaed;">icon_logo.png</span>
+          <span style="font-size:11px; color:#8b90a3;">84 KB</span>
+          <span style="font-size:11px; color:#8b90a3;">image/png</span>
+          <span style="font-size:10px; color:#34d399; background:rgba(52,211,153,0.1); padding:3px 8px; border-radius:4px; display:inline-block;">✓ Ready (3)</span>
+          <span style="font-size:11px; color:#f87171; cursor:pointer; text-align:center;">Delete</span>
+        </div>
+      </div>
+      
+      <!-- Pagination -->
+      <div style="display:flex; justify-content:center; gap:12px; margin-top:16px;">
+        <span style="font-size:11px; color:#5a6173; padding:6px 12px; border:1px solid #2a2f3a; border-radius:6px;">← Prev</span>
+        <span style="font-size:11px; color:#e8eaed; padding:6px 12px;">Page 1</span>
+        <span style="font-size:11px; color:#f0c040; padding:6px 12px; border:1px solid #2a2f3a; border-radius:6px; cursor:pointer;">Next →</span>
+      </div>
+    </div>
+  </div>
+</div>

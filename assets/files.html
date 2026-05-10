@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rapid - Image Metadata</title>
+  <title>Rapid - Files</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anybody:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -24,6 +24,7 @@
       --accent-dim: #c49a20;
       --error: #f87171;
       --error-dim: rgba(248, 113, 113, 0.12);
+      --success: #34d399;
       --font-display: 'Anybody', sans-serif;
       --font-mono: 'IBM Plex Mono', monospace;
       --radius-sm: 6px;
@@ -63,7 +64,7 @@
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       padding: 2.5rem;
-      max-width: 900px;
+      max-width: 960px;
       width: 100%;
       box-shadow:
         0 4px 24px rgba(0, 0, 0, 0.4),
@@ -74,6 +75,11 @@
     @keyframes card-arrive {
       from { opacity: 0; transform: translateY(24px) scale(0.97); }
       to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     .header {
@@ -331,7 +337,7 @@
   <main>
     <div class="header">
       <h1>Rapid</h1>
-      <span class="badge">metadata</span>
+      <span class="badge">files</span>
       <a href="/" class="nav-link">Upload</a>
     </div>
 
@@ -365,35 +371,57 @@
       return (bytes / (1024 * 1024)).toFixed(2) + " MB";
     }
 
+    function thumbnailCell(item) {
+      if (item.mime_type.startsWith("image/")) {
+        return `<td style="width:48px;padding:0.4rem 0.5rem;"><img src="/derivatives/${item.id}/32x32" style="width:32px;height:32px;border-radius:4px;object-fit:cover;animation:fade-in 0.3s ease;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div style="display:none;width:32px;height:32px;border-radius:4px;background:var(--bg-input);align-items:center;justify-content:center;font-size:9px;color:var(--text-dim);">...</div></td>`;
+      } else if (item.mime_type.startsWith("video/")) {
+        return `<td style="width:48px;padding:0.4rem 0.5rem;"><div style="width:32px;height:32px;border-radius:4px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;"><span style="color:var(--text-dim);font-size:14px;">\u25b6</span></div></td>`;
+      } else {
+        return `<td style="width:48px;padding:0.4rem 0.5rem;"><div style="width:32px;height:32px;border-radius:4px;background:var(--bg-input);"></div></td>`;
+      }
+    }
+
+    function statusCell(item) {
+      if (item.derivatives_status === "ready") {
+        return `<td><span style="font-size:0.68rem;color:var(--success);background:rgba(52,211,153,0.1);padding:2px 6px;border-radius:4px;">\u2713 Ready (${item.derivatives_count})</span></td>`;
+      } else if (item.derivatives_status === "processing") {
+        return `<td><span style="font-size:0.68rem;color:var(--accent);background:rgba(240,192,64,0.1);padding:2px 6px;border-radius:4px;">\u27f3 Processing</span></td>`;
+      } else {
+        return `<td><span style="font-size:0.68rem;color:var(--text-dim);">\u2014</span></td>`;
+      }
+    }
+
     async function loadPage(page) {
       currentPage = page;
-      history.replaceState(null, "", page === 1 ? "/metadata.html" : `/metadata.html?page=${page}`);
+      history.replaceState(null, "", page === 1 ? "/files.html" : `/files.html?page=${page}`);
 
       contentEl.innerHTML = '<div class="loading">Loading\u2026</div>';
       paginationEl.style.display = "none";
 
       try {
-        const resp = await fetch(`/api/metadata?page=${page}`);
+        const resp = await fetch(`/api/files?page=${page}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
 
         if (data.items.length === 0 && data.page === 1) {
-          contentEl.innerHTML = '<div class="empty-state">No images uploaded yet.</div>';
+          contentEl.innerHTML = '<div class="empty-state">No files uploaded yet.</div>';
           return;
         }
 
         let html = '<div class="table-wrap"><table><thead><tr>';
-        html += '<th>ID</th><th>File Name</th><th>Size</th><th>MIME Type</th><th>Created</th><th></th>';
+        html += '<th></th><th>ID</th><th>File Name</th><th>Size</th><th>MIME Type</th><th>Created</th><th>Status</th><th></th>';
         html += '</tr></thead><tbody>';
 
         for (const item of data.items) {
-          html += '<tr>';
+          html += `<tr onclick="window.location='/file-detail.html?id=${item.id}'" style="cursor:pointer">`;
+          html += thumbnailCell(item);
           html += `<td class="id-cell" title="${item.id}">${item.id.slice(0, 8)}\u2026</td>`;
           html += `<td title="${item.file_name}">${item.file_name}</td>`;
           html += `<td>${formatBytes(item.size_bytes)}</td>`;
           html += `<td>${item.mime_type}</td>`;
           html += `<td>${item.created_at}</td>`;
-          html += `<td><button class="delete-btn" data-id="${item.id}" data-name="${item.file_name}">Delete</button></td>`;
+          html += statusCell(item);
+          html += `<td><button class="delete-btn" onclick="event.stopPropagation()" data-id="${item.id}" data-name="${item.file_name}">Delete</button></td>`;
           html += '</tr>';
         }
 
@@ -407,7 +435,7 @@
         paginationEl.style.display = "flex";
 
       } catch (e) {
-        contentEl.innerHTML = `<div class="error-state">Failed to load metadata: ${e.message}</div>`;
+        contentEl.innerHTML = `<div class="error-state">Failed to load files: ${e.message}</div>`;
       }
     }
 
@@ -444,7 +472,7 @@
         delBtn.disabled = true;
         delBtn.textContent = "Deleting\u2026";
         try {
-          const resp = await fetch(`/api/metadata/${id}`, { method: "DELETE" });
+          const resp = await fetch(`/api/files/${id}`, { method: "DELETE" });
           if (!resp.ok) {
             const body = await resp.json().catch(() => ({}));
             throw new Error(body.error || `HTTP ${resp.status}`);

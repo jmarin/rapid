@@ -1,0 +1,71 @@
+<h2>Upload Page — Derivative Step Checklist</h2>
+<p class="subtitle">After upload completes, a "Derivatives" section appears showing processing progress for each size</p>
+
+<div class="mockup">
+  <div class="mockup-header">Upload Page — File Card (post-upload)</div>
+  <div class="mockup-body" style="background:#0b0c10; padding:24px; font-family:'IBM Plex Mono',monospace;">
+    
+    <!-- File card -->
+    <div style="background:#13151a; border:1px solid #2a2f3a; border-radius:12px; padding:16px 20px; max-width:500px;">
+      
+      <!-- File name -->
+      <div style="font-size:13px; font-weight:500; color:#e8eaed; margin-bottom:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">beach_sunset.jpg</div>
+      
+      <!-- Phase 1: Browser → Server (complete) -->
+      <div style="margin-bottom:8px;">
+        <div style="font-size:10px; color:#5a6173; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Browser → Server</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="flex:1; height:4px; background:#22262f; border-radius:2px;"><div style="height:100%; width:100%; background:#34d399; border-radius:2px;"></div></div>
+          <span style="font-size:11px; color:#34d399; min-width:40px; text-align:right;">Done</span>
+        </div>
+      </div>
+      
+      <!-- Phase 2: Server → S3 (complete) -->
+      <div style="margin-bottom:8px;">
+        <div style="font-size:10px; color:#5a6173; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Server → S3</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="flex:1; height:4px; background:#22262f; border-radius:2px;"><div style="height:100%; width:100%; background:#34d399; border-radius:2px;"></div></div>
+          <span style="font-size:11px; color:#34d399; min-width:40px; text-align:right;">Done</span>
+        </div>
+      </div>
+      
+      <!-- Status: Uploaded -->
+      <div style="font-size:11px; color:#34d399; background:rgba(52,211,153,0.12); padding:6px 10px; border-radius:6px; margin:10px 0;">✓ Uploaded to S3</div>
+      
+      <!-- Derivatives section -->
+      <div style="margin-top:14px; padding-top:14px; border-top:1px solid #2a2f3a;">
+        <div style="font-size:10px; color:#8b90a3; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px;">Derivatives</div>
+        
+        <div style="display:flex; flex-direction:column; gap:7px;">
+          <!-- Done -->
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="color:#34d399; font-size:13px; width:16px; text-align:center;">✓</span>
+            <span style="font-size:11px; color:#8b90a3;">80×80 thumbnail</span>
+          </div>
+          <!-- Done -->
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="color:#34d399; font-size:13px; width:16px; text-align:center;">✓</span>
+            <span style="font-size:11px; color:#8b90a3;">250×250 small preview</span>
+          </div>
+          <!-- In progress -->
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="color:#f0c040; font-size:13px; width:16px; text-align:center; animation:spin 1s linear infinite; display:inline-block;">⟳</span>
+            <span style="font-size:11px; color:#e8eaed;">800×600 large preview</span>
+          </div>
+          <!-- Pending -->
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="color:#5a6173; font-size:13px; width:16px; text-align:center;">○</span>
+            <span style="font-size:11px; color:#5a6173;">6000×6000 high-res</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+</style>

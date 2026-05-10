@@ -324,13 +324,38 @@ pub async fn list_file_metadata(
 
     match state.metadata.list(page, per_page).await {
         Ok((items, has_next)) => {
-            let resp = ListResponse {
-                items,
-                page,
-                per_page,
-                has_next,
-            };
-            (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
+            let mut enriched_items = Vec::with_capacity(items.len());
+            for item in &items {
+                let (derivatives_status, derivatives_count) = if item.mime_type.starts_with("image/") {
+                    match state.metadata.get_derivatives_by_parent(&item.id).await {
+                        Ok(derivs) if derivs.is_empty() => ("processing".to_string(), 0usize),
+                        Ok(derivs) => {
+                            let completed = derivs.iter().filter(|d| d.status == "completed").count();
+                            if completed == derivs.len() {
+                                ("ready".to_string(), completed)
+                            } else {
+                                ("processing".to_string(), completed)
+                            }
+                        }
+                        Err(_) => ("unknown".to_string(), 0usize),
+                    }
+                } else {
+                    ("none".to_string(), 0usize)
+                };
+
+                let mut val = serde_json::to_value(item).unwrap();
+                val.as_object_mut().unwrap().insert("derivatives_status".to_string(), serde_json::json!(derivatives_status));
+                val.as_object_mut().unwrap().insert("derivatives_count".to_string(), serde_json::json!(derivatives_count));
+                enriched_items.push(val);
+            }
+
+            let resp = serde_json::json!({
+                "items": enriched_items,
+                "page": page,
+                "per_page": per_page,
+                "has_next": has_next,
+            });
+            (StatusCode::OK, Json(resp)).into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "failed to list file metadata");
