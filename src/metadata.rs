@@ -20,6 +20,18 @@ pub struct FileMetadata {
     pub created_at: String,
 }
 
+#[derive(Serialize, FromRow)]
+pub struct Derivative {
+    pub id: String,
+    pub parent_id: String,
+    pub size_label: String,
+    pub s3_key: String,
+    pub width: i64,
+    pub height: i64,
+    pub status: String,
+    pub created_at: String,
+}
+
 #[derive(Deserialize)]
 pub struct ListParams {
     pub page: Option<i64>,
@@ -121,6 +133,89 @@ impl MetadataStore {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn insert_derivative(
+        &self,
+        id: &str,
+        parent_id: &str,
+        size_label: &str,
+        s3_key: &str,
+        width: i64,
+        height: i64,
+        status: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO derivatives (id, parent_id, size_label, s3_key, width, height, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(parent_id)
+        .bind(size_label)
+        .bind(s3_key)
+        .bind(width)
+        .bind(height)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_derivative_status(
+        &self,
+        id: &str,
+        status: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE derivatives SET status = ? WHERE id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn get_derivatives_by_parent(
+        &self,
+        parent_id: &str,
+    ) -> Result<Vec<Derivative>, sqlx::Error> {
+        sqlx::query_as::<_, Derivative>(
+            "SELECT id, parent_id, size_label, s3_key, width, height, status, created_at FROM derivatives WHERE parent_id = ? ORDER BY width ASC",
+        )
+        .bind(parent_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn get_derivative_by_parent_and_size(
+        &self,
+        parent_id: &str,
+        size_label: &str,
+    ) -> Result<Option<Derivative>, sqlx::Error> {
+        sqlx::query_as::<_, Derivative>(
+            "SELECT id, parent_id, size_label, s3_key, width, height, status, created_at FROM derivatives WHERE parent_id = ? AND size_label = ?",
+        )
+        .bind(parent_id)
+        .bind(size_label)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    pub async fn delete_derivatives_by_parent(
+        &self,
+        parent_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let keys: Vec<(String,)> = sqlx::query_as(
+            "SELECT s3_key FROM derivatives WHERE parent_id = ?",
+        )
+        .bind(parent_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        sqlx::query("DELETE FROM derivatives WHERE parent_id = ?")
+            .bind(parent_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(keys.into_iter().map(|(k,)| k).collect())
+    }
+
     pub async fn close(&self) {
         self.pool.close().await;
     }
@@ -160,7 +255,7 @@ pub async fn delete_file(
         }
     };
 
-    // Delete from S3
+    // Delete original from S3
     if let Err(e) = state.s3_client
         .delete_object()
         .bucket(&state.s3_bucket)
@@ -172,15 +267,50 @@ pub async fn delete_file(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "failed to delete file from storage" }))).into_response();
     }
 
-    // Delete from DB
+    // Delete derivative S3 objects
+    match state.metadata.delete_derivatives_by_parent(&id).await {
+        Ok(s3_keys) => {
+            for key in &s3_keys {
+                if let Err(e) = state.s3_client
+                    .delete_object()
+                    .bucket(&state.s3_bucket)
+                    .key(key)
+                    .send()
+                    .await
+                {
+                    tracing::warn!(error = %e, key = %key, "failed to delete derivative from S3");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(error = %e, id = %id, "failed to delete derivative metadata");
+        }
+    }
+
+    // Delete parent from DB (CASCADE will also remove derivative rows)
     match state.metadata.delete(&id).await {
         Ok(_) => {
-            tracing::info!(id = %id, file_name = %meta.file_name, "deleted file");
+            tracing::info!(id = %id, file_name = %meta.file_name, "deleted file and derivatives");
             (StatusCode::OK, Json(serde_json::json!({ "deleted": id }))).into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "failed to delete metadata");
             (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "file deleted from storage but metadata removal failed" }))).into_response()
+        }
+    }
+}
+
+pub async fn list_derivatives(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.metadata.get_derivatives_by_parent(&id).await {
+        Ok(derivatives) => {
+            (StatusCode::OK, Json(serde_json::json!({ "parent_id": id, "derivatives": derivatives }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to list derivatives");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "internal error" }))).into_response()
         }
     }
 }

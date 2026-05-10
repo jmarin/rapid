@@ -17,7 +17,7 @@ use tokio::task::JoinSet;
 use tokio_util::io::StreamReader;
 use uuid::Uuid;
 
-use crate::{AppState, error::UploadError, magic::mime_type_magic, ws::UploadEvent};
+use crate::{AppState, error::UploadError, image::{self, STANDARD_SIZES, HIGH_RES, ImageError}, magic::mime_type_magic, ws::UploadEvent};
 
 const MIN_CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8MB
 const MAX_PARTS: u64 = 10_000;
@@ -83,8 +83,16 @@ pub async fn upload_file(
         .unwrap_or("unknown")
         .to_string();
 
-    // Stream request body to a temp file (auto-deleted on drop)
-    let temp_file = NamedTempFile::new_in(&state.upload_dir)?;
+    // Stream request body to a temp file (auto-deleted on drop).
+    // Preserve the original file extension so the `image` crate can detect the format.
+    let suffix = std::path::Path::new(&file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default();
+    let temp_file = tempfile::Builder::new()
+        .suffix(&suffix)
+        .tempfile_in(&state.upload_dir)?;
     let temp_path = temp_file.path().to_path_buf();
 
     let stream = body
@@ -180,10 +188,30 @@ pub async fn upload_file(
         tracing::error!(file_id = %file_id, error = %e, "failed to save file metadata");
     }
 
-    // Clean up progress entry from shared map
-    if let Some(ref uid) = upload_id {
-        state.upload_progress.remove(uid);
-    }
+    // Spawn background image processing (keeps temp_file alive via ownership transfer)
+    let spawn_state = state.clone();
+    let cleanup_state = state.clone();
+    let spawn_file_id = file_id.clone();
+    let spawn_temp_path = temp_path.clone();
+    let spawn_mime = mime_type.clone();
+    let spawn_progress_tx = progress_tx.clone();
+    let spawn_upload_id = upload_id.clone();
+    tokio::spawn(async move {
+        process_image_derivatives(
+            spawn_state,
+            spawn_file_id,
+            spawn_temp_path,
+            temp_file, // move ownership to keep file alive
+            spawn_mime,
+            spawn_progress_tx,
+            spawn_upload_id.clone(),
+        )
+        .await;
+        // Clean up progress entry after processing is done
+        if let Some(ref uid) = spawn_upload_id {
+            cleanup_state.upload_progress.remove(uid);
+        }
+    });
 
     let key = file_id.clone();
     let response = UploadResponse {
@@ -194,6 +222,191 @@ pub async fn upload_file(
     };
 
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// Background image processing: generates derivatives from the local temp file,
+/// uploads each to S3, inserts metadata rows, and sends WebSocket progress events.
+/// The `_temp_file` parameter is held to prevent deletion until processing completes.
+async fn process_image_derivatives(
+    state: AppState,
+    file_id: String,
+    temp_path: std::path::PathBuf,
+    _temp_file: NamedTempFile,
+    mime_type: String,
+    progress_tx: Option<mpsc::Sender<UploadEvent>>,
+    upload_id: Option<String>,
+) {
+    // Only process image types (not video)
+    if !mime_type.starts_with("image/") {
+        return;
+    }
+
+    // Determine which sizes to generate
+    let specs: Vec<image::ResizeSpec> = {
+        let mut s: Vec<image::ResizeSpec> = STANDARD_SIZES.to_vec();
+        match image::needs_high_res(&temp_path) {
+            Ok(true) => s.push(HIGH_RES),
+            Ok(false) => {}
+            Err(e) => {
+                tracing::error!(file_id = %file_id, error = %e, "failed to check image dimensions");
+                return;
+            }
+        }
+        s
+    };
+
+    let total = specs.len() as u32;
+
+    // Notify processing started
+    if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+        let _ = tx
+            .send(UploadEvent::ProcessingStarted {
+                upload_id: uid.clone(),
+                total_derivatives: total,
+            })
+            .await;
+    }
+
+    // Create a temp directory for derivative output files
+    let derivative_dir = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!(file_id = %file_id, error = %e, "failed to create temp dir for derivatives");
+            if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+                let _ = tx
+                    .send(UploadEvent::ProcessingFailed {
+                        upload_id: uid.clone(),
+                        error: e.to_string(),
+                    })
+                    .await;
+            }
+            return;
+        }
+    };
+
+    for (i, spec) in specs.iter().enumerate() {
+        let size_label = format!("{}x{}", spec.width, spec.height);
+        let s3_key = format!("{}_{}", file_id, size_label);
+        let derivative_id = Uuid::new_v4().to_string();
+
+        // Insert derivative row as "processing"
+        if let Err(e) = state
+            .metadata
+            .insert_derivative(
+                &derivative_id,
+                &file_id,
+                &size_label,
+                &s3_key,
+                spec.width as i64,
+                spec.height as i64,
+                "processing",
+            )
+            .await
+        {
+            tracing::error!(file_id = %file_id, size = %size_label, error = %e, "failed to insert derivative metadata");
+            continue;
+        }
+
+        // Resize image (CPU-bound work on blocking thread)
+        let input = temp_path.clone();
+        let output = derivative_dir
+            .path()
+            .join(format!("{}_{}.jpg", file_id, size_label));
+        let spec_copy = *spec;
+        let resize_result = tokio::task::spawn_blocking(move || {
+            image::resize_image(&input, &output, &spec_copy)?;
+            Ok::<std::path::PathBuf, ImageError>(output)
+        })
+        .await;
+
+        let output_path = match resize_result {
+            Ok(Ok(path)) => path,
+            Ok(Err(e)) => {
+                tracing::error!(file_id = %file_id, size = %size_label, error = %e, "image resize failed");
+                let _ = state
+                    .metadata
+                    .update_derivative_status(&derivative_id, "failed")
+                    .await;
+                if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+                    let _ = tx
+                        .send(UploadEvent::ProcessingFailed {
+                            upload_id: uid.clone(),
+                            error: format!("resize failed for {}: {}", size_label, e),
+                        })
+                        .await;
+                }
+                continue;
+            }
+            Err(e) => {
+                tracing::error!(file_id = %file_id, size = %size_label, error = %e, "spawn_blocking panicked");
+                let _ = state
+                    .metadata
+                    .update_derivative_status(&derivative_id, "failed")
+                    .await;
+                continue;
+            }
+        };
+
+        // Upload derivative to S3
+        let body_stream = match ByteStream::from_path(&output_path).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!(file_id = %file_id, size = %size_label, error = %e, "failed to read derivative file");
+                let _ = state
+                    .metadata
+                    .update_derivative_status(&derivative_id, "failed")
+                    .await;
+                continue;
+            }
+        };
+
+        if let Err(e) = state
+            .s3_client
+            .put_object()
+            .bucket(&state.s3_bucket)
+            .key(&s3_key)
+            .body(body_stream)
+            .content_type("image/jpeg")
+            .send()
+            .await
+        {
+            tracing::error!(file_id = %file_id, size = %size_label, error = %e, "failed to upload derivative to S3");
+            let _ = state
+                .metadata
+                .update_derivative_status(&derivative_id, "failed")
+                .await;
+            continue;
+        }
+
+        // Mark derivative as completed
+        let _ = state
+            .metadata
+            .update_derivative_status(&derivative_id, "completed")
+            .await;
+
+        // Notify progress
+        if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+            let _ = tx
+                .send(UploadEvent::DerivativeCompleted {
+                    upload_id: uid.clone(),
+                    size_label: size_label.clone(),
+                    derivative_number: (i + 1) as u32,
+                    total_derivatives: total,
+                })
+                .await;
+        }
+    }
+
+    // Notify processing completed
+    if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
+        let _ = tx
+            .send(UploadEvent::ProcessingCompleted {
+                upload_id: uid.clone(),
+            })
+            .await;
+    }
+
+    tracing::info!(file_id = %file_id, "image processing completed");
 }
 
 async fn multipart_upload(

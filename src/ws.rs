@@ -46,6 +46,26 @@ pub enum UploadEvent {
 
     #[serde(rename = "upload_failed")]
     UploadFailed { upload_id: String, error: String },
+
+    #[serde(rename = "processing_started")]
+    ProcessingStarted {
+        upload_id: String,
+        total_derivatives: u32,
+    },
+
+    #[serde(rename = "derivative_completed")]
+    DerivativeCompleted {
+        upload_id: String,
+        size_label: String,
+        derivative_number: u32,
+        total_derivatives: u32,
+    },
+
+    #[serde(rename = "processing_completed")]
+    ProcessingCompleted { upload_id: String },
+
+    #[serde(rename = "processing_failed")]
+    ProcessingFailed { upload_id: String, error: String },
 }
 
 pub async fn ws_upload_progress(
@@ -209,5 +229,50 @@ mod tests {
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "upload_failed");
         assert_eq!(json["error"], "boom");
+    }
+
+    #[test]
+    fn serialize_processing_started_event() {
+        let event = UploadEvent::ProcessingStarted {
+            upload_id: "u1".into(),
+            total_derivatives: 3,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "processing_started");
+        assert_eq!(json["total_derivatives"], 3);
+    }
+
+    #[test]
+    fn serialize_derivative_completed_event() {
+        let event = UploadEvent::DerivativeCompleted {
+            upload_id: "u1".into(),
+            size_label: "80x80".into(),
+            derivative_number: 1,
+            total_derivatives: 3,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "derivative_completed");
+        assert_eq!(json["size_label"], "80x80");
+        assert_eq!(json["derivative_number"], 1);
+    }
+
+    #[test]
+    fn serialize_processing_completed_event() {
+        let event = UploadEvent::ProcessingCompleted {
+            upload_id: "u1".into(),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "processing_completed");
+    }
+
+    #[test]
+    fn serialize_processing_failed_event() {
+        let event = UploadEvent::ProcessingFailed {
+            upload_id: "u1".into(),
+            error: "decode error".into(),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "processing_failed");
+        assert_eq!(json["error"], "decode error");
     }
 }
