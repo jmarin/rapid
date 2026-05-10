@@ -62,7 +62,7 @@ pub enum UploadEvent {
     },
 
     #[serde(rename = "processing_completed")]
-    ProcessingCompleted { upload_id: String },
+    ProcessingCompleted { upload_id: String, elapsed_ms: u128 },
 
     #[serde(rename = "processing_failed")]
     ProcessingFailed { upload_id: String, error: String },
@@ -260,6 +260,7 @@ mod tests {
     fn serialize_processing_completed_event() {
         let event = UploadEvent::ProcessingCompleted {
             upload_id: "u1".into(),
+            elapsed_ms: 1234,
         };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "processing_completed");

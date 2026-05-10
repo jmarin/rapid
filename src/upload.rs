@@ -449,6 +449,7 @@ async fn process_image_derivatives(
         let _ = tx
             .send(UploadEvent::ProcessingCompleted {
                 upload_id: uid.clone(),
+                elapsed_ms: resize_elapsed.as_millis(),
             })
             .await;
     }

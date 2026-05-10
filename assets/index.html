@@ -517,6 +517,12 @@
     .derivative-step.failed .step-icon { color: var(--error); }
     .derivative-step.failed .step-label { color: var(--error); }
 
+    .derivatives-time {
+      margin-left: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
     @keyframes deriv-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
@@ -830,6 +836,13 @@
                   s.querySelector('.step-icon').textContent = '✓';
                 }
               });
+              const elapsed = data.elapsed_ms;
+              const timeNote = document.createElement('span');
+              timeNote.className = 'derivatives-time';
+              timeNote.textContent = elapsed < 1000
+                ? `${elapsed}ms`
+                : `${(elapsed / 1000).toFixed(1)}s`;
+              section.appendChild(timeNote);
             }
             uploadHandlers.delete(data.upload_id);
             break;
