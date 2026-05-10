@@ -20,6 +20,11 @@ use crate::utils::constants::prod::{
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
+    // Initialize libvips — must happen once before any image processing.
+    // The VipsApp handle is intentionally leaked (lives for process lifetime).
+    let _vips = libvips::VipsApp::new("rapid", false)
+        .expect("failed to initialize libvips");
+
     let log_level = env::var("RAPID_LOG_LEVEL").unwrap_or_else(|_| DEFAULT_LOG_LEVEL.to_string());
     tracing_subscriber::fmt()
         .json()
