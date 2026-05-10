@@ -185,9 +185,10 @@ pub async fn upload_file(
         state.upload_progress.remove(uid);
     }
 
+    let key = file_id.clone();
     let response = UploadResponse {
-        id: file_id.clone(),
-        key: file_id,
+        id: file_id,
+        key,
         size_bytes,
         mime_type,
     };
