@@ -61,8 +61,13 @@ pub fn resize_image(
     spec: &ResizeSpec,
 ) -> Result<(), ImageError> {
     let img = image::open(input_path).map_err(ImageError::Decode)?;
-    let resized = img.resize(spec.width, spec.height, FilterType::Lanczos3);
-    resized.save(output_path).map_err(ImageError::Encode)?;
+    // Never upscale: if the image already fits within the spec, save as-is.
+    if img.width() <= spec.width && img.height() <= spec.height {
+        img.save(output_path).map_err(ImageError::Encode)?;
+    } else {
+        let resized = img.resize(spec.width, spec.height, FilterType::Lanczos3);
+        resized.save(output_path).map_err(ImageError::Encode)?;
+    }
     Ok(())
 }
 
@@ -165,6 +170,21 @@ mod tests {
         let dims = image::image_dimensions(&output).unwrap();
         // 100x100 resized to fit 80x80 → 80x80
         assert!(dims.0 <= 80 && dims.1 <= 80);
+    }
+
+    #[test]
+    fn resize_does_not_upscale() {
+        let input = test_image_path(); // 100x100
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("large.png");
+
+        let big_spec = ResizeSpec { width: 6000, height: 6000, label: "big" };
+        resize_image(&input, &output, &big_spec).unwrap();
+        assert!(output.exists());
+
+        let dims = image::image_dimensions(&output).unwrap();
+        // Must not exceed original 100x100
+        assert_eq!(dims, (100, 100));
     }
 
     #[test]
