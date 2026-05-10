@@ -83,12 +83,6 @@ pub async fn upload_file(
         .unwrap_or("unknown")
         .to_string();
 
-    let parallel_derivatives = headers
-        .get("x-parallel-derivatives")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
     // Stream request body to a temp file (auto-deleted on drop).
     // Preserve the original file extension so the `image` crate can detect the format.
     let suffix = std::path::Path::new(&file_name)
@@ -224,7 +218,6 @@ pub async fn upload_file(
             spawn_mime,
             spawn_progress_tx,
             spawn_upload_id.clone(),
-            parallel_derivatives,
         )
         .await;
         // Clean up progress entry after processing is done
@@ -255,7 +248,6 @@ async fn process_image_derivatives(
     mime_type: String,
     progress_tx: Option<mpsc::Sender<UploadEvent>>,
     upload_id: Option<String>,
-    parallel: bool,
 ) {
     // Only process image types (not video)
     if !mime_type.starts_with("image/") {
@@ -312,7 +304,7 @@ async fn process_image_derivatives(
             let size_label = format!("{}x{}", spec.width, spec.height);
             let out = derivative_dir
                 .path()
-                .join(format!("{}_{}.jpg", file_id, size_label));
+                .join(format!("{}_{}.png", file_id, size_label));
             (*spec, out)
         })
         .collect();
@@ -326,7 +318,7 @@ async fn process_image_derivatives(
     })
     .await;
     let resize_elapsed = resize_start.elapsed();
-    tracing::info!(file_id = %file_id, elapsed_ms = resize_elapsed.as_millis(), parallel = parallel, "all derivatives resized");
+    tracing::info!(file_id = %file_id, elapsed_ms = resize_elapsed.as_millis(), "all derivatives resized");
 
     let per_spec_results = match resize_results {
         Ok(Ok(batch)) => {
