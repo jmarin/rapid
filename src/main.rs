@@ -1,10 +1,10 @@
 use dotenvy::dotenv;
 use rapid::{AppState, Application, metadata::MetadataStore};
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::Semaphore;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
         s3_bucket,
         upload_semaphore: Arc::new(Semaphore::new(max_inflight_parts)),
         max_parts_per_upload,
-        upload_progress: Arc::new(RwLock::new(HashMap::new())),
+        upload_progress: Arc::new(DashMap::new()),
         metadata,
     };
 

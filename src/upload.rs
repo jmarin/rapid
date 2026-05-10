@@ -102,12 +102,9 @@ pub async fn upload_file(
     file.flush().await?;
 
     // Look up progress sender after body is fully received
-    let progress_tx: Option<mpsc::Sender<UploadEvent>> = if let Some(ref uid) = upload_id {
-        let map = state.upload_progress.read().await;
-        map.get(uid).cloned()
-    } else {
-        None
-    };
+    let progress_tx: Option<mpsc::Sender<UploadEvent>> = upload_id
+        .as_ref()
+        .and_then(|uid| state.upload_progress.get(uid).map(|r| r.value().clone()));
 
     // Detect MIME type from temp file
     let mime_type = mime_type_magic(&temp_path).await?;
@@ -123,8 +120,7 @@ pub async fn upload_file(
                 .await;
         }
         if let Some(ref uid) = upload_id {
-            let mut map = state.upload_progress.write().await;
-            map.remove(uid);
+            state.upload_progress.remove(uid);
         }
         return Err(UploadError::NotAnImageOrVideo(mime_type));
     }
@@ -186,8 +182,7 @@ pub async fn upload_file(
 
     // Clean up progress entry from shared map
     if let Some(ref uid) = upload_id {
-        let mut map = state.upload_progress.write().await;
-        map.remove(uid);
+        state.upload_progress.remove(uid);
     }
 
     let response = UploadResponse {

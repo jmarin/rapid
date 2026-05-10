@@ -17,12 +17,12 @@ use axum::{
     serve::Serve,
 };
 pub use error::*;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::{RwLock, Semaphore, mpsc};
+use tokio::sync::{Semaphore, mpsc};
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
 pub struct Application {
@@ -43,7 +43,7 @@ pub struct AppState {
     pub s3_bucket: String,
     pub upload_semaphore: Arc<Semaphore>,
     pub max_parts_per_upload: usize,
-    pub upload_progress: Arc<RwLock<HashMap<String, mpsc::Sender<ws::UploadEvent>>>>,
+    pub upload_progress: Arc<DashMap<String, mpsc::Sender<ws::UploadEvent>>>,
     pub metadata: MetadataStore,
 }
 
