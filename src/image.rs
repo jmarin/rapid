@@ -313,4 +313,40 @@ mod tests {
             assert!(path.exists());
         }
     }
+
+    #[test]
+    fn resize_respects_height_constraint_for_portrait() {
+        init_vips();
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("portrait.png");
+        // 200x800 portrait image
+        let img = image::RgbImage::from_fn(200, 800, |_, _| image::Rgb([0, 255, 0]));
+        img.save(&input).unwrap();
+
+        let output = dir.path().join("out.png");
+        // Spec is 800x600 — height (600) should be the constraint
+        resize_to_png(&input, &output, &LARGE_PREVIEW).unwrap();
+
+        let (w, h) = image::image_dimensions(&output).unwrap();
+        assert!(h <= 600, "height {h} should be <= 600");
+        assert!(w <= 800, "width {w} should be <= 800");
+    }
+
+    #[test]
+    fn resize_respects_width_constraint_for_landscape() {
+        init_vips();
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("landscape.png");
+        // 2000x500 landscape image
+        let img = image::RgbImage::from_fn(2000, 500, |_, _| image::Rgb([255, 255, 0]));
+        img.save(&input).unwrap();
+
+        let output = dir.path().join("out.png");
+        // Spec is 800x600 — width (800) should be the constraint
+        resize_to_png(&input, &output, &LARGE_PREVIEW).unwrap();
+
+        let (w, h) = image::image_dimensions(&output).unwrap();
+        assert!(w <= 800, "width {w} should be <= 800");
+        assert!(h <= 600, "height {h} should be <= 600");
+    }
 }

@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
     // Initialize libvips — must happen once before any image processing.
-    // The VipsApp handle is intentionally leaked (lives for process lifetime).
+    // Bound to `_vips` so it lives for the duration of main (process lifetime).
     let _vips = libvips::VipsApp::new("rapid", false)
         .expect("failed to initialize libvips");
 
