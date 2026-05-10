@@ -421,7 +421,7 @@
           html += `<td>${item.mime_type}</td>`;
           html += `<td>${item.created_at}</td>`;
           html += statusCell(item);
-          html += `<td><button class="delete-btn" onclick="event.stopPropagation()" data-id="${item.id}" data-name="${item.file_name}">Delete</button></td>`;
+          html += `<td><button class="delete-btn" onclick="event.stopPropagation(); showConfirm('${item.id}', '${item.file_name.replace(/'/g, "\\'")}')" data-id="${item.id}" data-name="${item.file_name}">Delete</button></td>`;
           html += '</tr>';
         }
 
