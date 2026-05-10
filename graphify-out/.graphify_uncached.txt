@@ -1,0 +1,15 @@
+/home/juan/Development/jmarin/rapid/build.rs
+/home/juan/Development/jmarin/rapid/src/test_utils.rs
+/home/juan/Development/jmarin/rapid/src/image.rs
+/home/juan/Development/jmarin/rapid/src/download.rs
+/home/juan/Development/jmarin/rapid/src/error.rs
+/home/juan/Development/jmarin/rapid/src/main.rs
+/home/juan/Development/jmarin/rapid/src/lib.rs
+/home/juan/Development/jmarin/rapid/src/ws.rs
+/home/juan/Development/jmarin/rapid/src/upload.rs
+/home/juan/Development/jmarin/rapid/src/magic.rs
+/home/juan/Development/jmarin/rapid/src/utils/mod.rs
+/home/juan/Development/jmarin/rapid/src/utils/constants.rs
+/home/juan/Development/jmarin/rapid/README.md
+/home/juan/Development/jmarin/rapid/assets/index.html
+/home/juan/Development/jmarin/rapid/data/files/NGC 6888.jpg

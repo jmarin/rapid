@@ -1,5 +1,5 @@
 use dotenvy::dotenv;
-use rapid::{AppState, Application};
+use rapid::{AppState, Application, metadata::MetadataStore};
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
@@ -11,8 +11,8 @@ use tracing_subscriber::EnvFilter;
 mod utils;
 
 use crate::utils::constants::prod::{
-    APP_ADDRESS, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CONCURRENT_S3_PARTS, DEFAULT_S3_BUCKET,
-    DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION, DEFAULT_UPLOAD_DIR,
+    APP_ADDRESS, DEFAULT_DB_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CONCURRENT_S3_PARTS,
+    DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION, DEFAULT_UPLOAD_DIR,
 };
 
 // Temporary main. This will run the Axum web service
@@ -67,6 +67,11 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let db_url = env::var("RAPID_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
+    let metadata = MetadataStore::new(&db_url)
+        .await
+        .expect("Failed to initialize metadata database");
+
     let app_state = AppState {
         upload_dir,
         s3_client,
@@ -78,13 +83,17 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(DEFAULT_MAX_CONCURRENT_S3_PARTS),
         )),
         upload_progress: Arc::new(RwLock::new(HashMap::new())),
+        metadata,
     };
 
-    let app = Application::build(app_state, APP_ADDRESS)
+    let app = Application::build(app_state.clone(), APP_ADDRESS)
         .await
         .expect("Failed to start application");
 
     app.run().await.expect("Failed to run application");
+
+    info!("closing metadata database");
+    app_state.metadata.close().await;
 
     Ok(())
 }
