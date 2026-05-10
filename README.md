@@ -31,6 +31,12 @@ Multipart uploads to S3 are governed by two semaphores:
 
 Both semaphores use a 10-minute acquisition timeout to guard against deadlocks without rejecting legitimate traffic under load.
 
+### Upload Progress Tracking
+
+Upload progress is tracked via a shared map (`upload_progress`) that maps client-provided upload IDs to event channels. WebSocket subscribers register their upload IDs in this map, and the upload handler sends progress events through it.
+
+This map uses [DashMap](https://docs.rs/dashmap), a concurrent hash map with fine-grained per-shard locking, instead of a `RwLock<HashMap>`. Under concurrent uploads with active WebSocket subscribers, a single `RwLock` becomes a serialization bottleneck — every progress lookup or subscription insert contends on the same lock. DashMap shards the map internally so that operations on different keys rarely contend, giving near-linear scalability as concurrency increases.
+
 ### Project structure
 
 

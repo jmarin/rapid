@@ -80,10 +80,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     if let Ok(cmd) = serde_json::from_str::<WsCommand>(&text) {
                         match cmd {
                             WsCommand::Subscribe { upload_id } => {
-                                {
-                                    let mut map = progress_map.write().await;
-                                    map.insert(upload_id.clone(), event_tx.clone());
-                                }
+                                progress_map.insert(upload_id.clone(), event_tx.clone());
                                 subscribed_ids.lock().unwrap().push(upload_id.clone());
 
                                 let _ = event_tx.send(UploadEvent::Subscribed { upload_id }).await;
@@ -104,11 +101,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Cleanup: remove all this connection's upload_ids from the shared map
     let ids = subscribed_ids.lock().unwrap().clone();
-    if !ids.is_empty() {
-        let mut map = state.upload_progress.write().await;
-        for id in &ids {
-            map.remove(id);
-        }
+    for id in &ids {
+        state.upload_progress.remove(id);
     }
 }
 
