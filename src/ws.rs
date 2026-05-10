@@ -58,7 +58,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let (event_tx, mut event_rx) = mpsc::channel::<UploadEvent>(256);
 
     // Track which upload_ids this connection subscribed to, for cleanup.
-    let subscribed_ids = std::sync::Mutex::new(Vec::<String>::new());
+    let subscribed_ids = tokio::sync::Mutex::new(Vec::<String>::new());
 
     // Forward events from mpsc channel -> WebSocket
     let send_task = tokio::spawn(async move {
@@ -81,7 +81,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         match cmd {
                             WsCommand::Subscribe { upload_id } => {
                                 progress_map.insert(upload_id.clone(), event_tx.clone());
-                                subscribed_ids.lock().unwrap().push(upload_id.clone());
+                                subscribed_ids.lock().await.push(upload_id.clone());
 
                                 let _ = event_tx.send(UploadEvent::Subscribed { upload_id }).await;
                             }
@@ -100,7 +100,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }
 
     // Cleanup: remove all this connection's upload_ids from the shared map
-    let ids = subscribed_ids.lock().unwrap().clone();
+    let ids = subscribed_ids.lock().await.clone();
     for id in &ids {
         state.upload_progress.remove(id);
     }
@@ -127,7 +127,9 @@ mod tests {
 
     #[test]
     fn serialize_subscribed_event() {
-        let event = UploadEvent::Subscribed { upload_id: "x".into() };
+        let event = UploadEvent::Subscribed {
+            upload_id: "x".into(),
+        };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "subscribed");
         assert_eq!(json["upload_id"], "x");
@@ -135,7 +137,10 @@ mod tests {
 
     #[test]
     fn serialize_upload_started_event() {
-        let event = UploadEvent::UploadStarted { upload_id: "u1".into(), total_parts: 5 };
+        let event = UploadEvent::UploadStarted {
+            upload_id: "u1".into(),
+            total_parts: 5,
+        };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "upload_started");
         assert_eq!(json["total_parts"], 5);
@@ -143,7 +148,11 @@ mod tests {
 
     #[test]
     fn serialize_part_completed_event() {
-        let event = UploadEvent::PartCompleted { upload_id: "u1".into(), part_number: 3, total_parts: 10 };
+        let event = UploadEvent::PartCompleted {
+            upload_id: "u1".into(),
+            part_number: 3,
+            total_parts: 10,
+        };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "part_completed");
         assert_eq!(json["part_number"], 3);
@@ -152,14 +161,19 @@ mod tests {
 
     #[test]
     fn serialize_upload_completed_event() {
-        let event = UploadEvent::UploadCompleted { upload_id: "done".into() };
+        let event = UploadEvent::UploadCompleted {
+            upload_id: "done".into(),
+        };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "upload_completed");
     }
 
     #[test]
     fn serialize_upload_failed_event() {
-        let event = UploadEvent::UploadFailed { upload_id: "f".into(), error: "boom".into() };
+        let event = UploadEvent::UploadFailed {
+            upload_id: "f".into(),
+            error: "boom".into(),
+        };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "upload_failed");
         assert_eq!(json["error"], "boom");
