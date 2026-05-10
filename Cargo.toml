@@ -26,3 +26,4 @@ aws-sdk-s3 = "1.132.0"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 tempfile = "3"
 dashmap = "6"
+tower = { version = "0.5", features = ["timeout"] }

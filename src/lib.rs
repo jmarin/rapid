@@ -61,7 +61,13 @@ impl Application {
         let upload_route = Router::new()
             .route("/upload", post(upload::upload_file))
             .layer(DefaultBodyLimit::disable())
-            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)); // Setting a limit of 10GB file size for uploads
+            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)) // 10GB file size limit
+            .layer((
+                axum::error_handling::HandleErrorLayer::new(|_: tower::BoxError| async {
+                    StatusCode::REQUEST_TIMEOUT
+                }),
+                tower::timeout::TimeoutLayer::new(std::time::Duration::from_secs(1800)),
+            ));
 
         let router = Router::new()
             .fallback_service(assets_dir)
