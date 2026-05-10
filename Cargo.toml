@@ -27,7 +27,15 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 tempfile = "3"
 dashmap = "6"
 tower = { version = "0.5", features = ["timeout"] }
+
+# libvips ships Linux-only pre-generated bindings and doesn't compile on Windows.
+# Use the pure-Rust image crate as a fallback on Windows.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 libvips = "1.7"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+image = "0.25"
+fast_image_resize = "4"
 
 [dev-dependencies]
 image = "0.25"

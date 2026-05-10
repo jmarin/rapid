@@ -22,8 +22,16 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize libvips — must happen once before any image processing.
     // Bound to `_vips` so it lives for the duration of main (process lifetime).
-    let _vips = libvips::VipsApp::new("rapid", false)
-        .expect("failed to initialize libvips");
+    // Not available on Windows; the image crate fallback needs no explicit init.
+    #[cfg(not(target_os = "windows"))]
+    let _vips = {
+        let app = libvips::VipsApp::new("rapid", false)
+            .expect("failed to initialize libvips");
+        // Default cache limit is 100 MB, which is too small for high-res
+        // derivatives (a 6000×6000 RGBA image alone needs ~144 MB).
+        app.cache_set_max_mem(512 * 1024 * 1024);
+        app
+    };
 
     let log_level = env::var("RAPID_LOG_LEVEL").unwrap_or_else(|_| DEFAULT_LOG_LEVEL.to_string());
     tracing_subscriber::fmt()

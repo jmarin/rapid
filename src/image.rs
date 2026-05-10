@@ -59,53 +59,148 @@ pub const STANDARD_SIZES: [ResizeSpec; 4] = [TABLE_THUMB, THUMBNAIL, SMALL_PREVI
 /// a high-resolution derivative is also generated.
 pub const HIGH_RES_THRESHOLD: u32 = 3000;
 
+// ── libvips backend (Linux / macOS) ─────────────────────────────────────────
+
+#[cfg(not(target_os = "windows"))]
+mod platform {
+    use super::{ImageError, ResizeSpec};
+    use std::path::Path;
+
+    pub fn get_dimensions(input_path: &Path) -> Result<(u32, u32), ImageError> {
+        let input_str = input_path.to_str().ok_or(ImageError::InvalidPath)?;
+        let img = libvips::VipsImage::new_from_file(input_str)
+            .map_err(|e| ImageError::Decode(e.to_string()))?;
+        Ok((img.get_width() as u32, img.get_height() as u32))
+    }
+
+    /// Uses libvips `thumbnail` for fused decode+resize (fastest path).
+    /// Never upscales: if the image already fits, it passes through unchanged.
+    pub fn resize_to_png(
+        input_path: &Path,
+        output_path: &Path,
+        spec: &ResizeSpec,
+    ) -> Result<(), ImageError> {
+        let input_str = input_path.to_str().ok_or(ImageError::InvalidPath)?;
+        let output_str = output_path.to_str().ok_or(ImageError::InvalidPath)?;
+
+        let img = libvips::VipsImage::new_from_file(input_str)
+            .map_err(|e| ImageError::Decode(e.to_string()))?;
+        let (w, h) = (img.get_width() as u32, img.get_height() as u32);
+
+        if w <= spec.width && h <= spec.height {
+            libvips::ops::pngsave(&img, output_str)
+                .map_err(|e| ImageError::Encode(e.to_string()))?;
+        } else {
+            // Compute the constraining width so both width AND height fit.
+            // thumbnail() only takes a width param; we derive the effective
+            // width that respects both the width and height constraints.
+            let scale_w = spec.width as f64 / w as f64;
+            let scale_h = spec.height as f64 / h as f64;
+            let scale = scale_w.min(scale_h);
+            let effective_width = (w as f64 * scale).round() as i32;
+
+            let resized = libvips::ops::thumbnail(input_str, effective_width)
+                .map_err(|e| ImageError::Decode(e.to_string()))?;
+            libvips::ops::pngsave(&resized, output_str)
+                .map_err(|e| ImageError::Encode(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+}
+
+// ── fast_image_resize + image crate backend (Windows) ───────────────────────
+//
+// `image` handles decode/encode; `fast_image_resize` does the actual resize
+// step using SIMD (AVX2/SSE4.1 on x86-64), giving 5-10× speedup over
+// `image`'s scalar Lanczos3 for large inputs.
+
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::{ImageError, ResizeSpec};
+    use fast_image_resize::{
+        FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer,
+        images::Image,
+    };
+    use std::path::Path;
+
+    fn open_image(input_path: &Path) -> Result<image::DynamicImage, ImageError> {
+        // `image::open` uses a default 512 MiB allocation cap that triggers
+        // "Memory limit exceeded" for large images. Disable it: we trust our
+        // own upload size cap (10 GB) as the effective ceiling.
+        let mut reader = image::io::Reader::open(input_path)
+            .map_err(|e| ImageError::Decode(e.to_string()))?
+            .with_guessed_format()
+            .map_err(|e| ImageError::Decode(e.to_string()))?;
+        reader.limits(image::io::Limits::no_limits());
+        reader.decode().map_err(|e| ImageError::Decode(e.to_string()))
+    }
+
+    pub fn get_dimensions(input_path: &Path) -> Result<(u32, u32), ImageError> {
+        image::image_dimensions(input_path).map_err(|e| ImageError::Decode(e.to_string()))
+    }
+
+    /// Decode with the `image` crate, resize with `fast_image_resize` (SIMD
+    /// Lanczos3), encode as PNG. Never upscales.
+    pub fn resize_to_png(
+        input_path: &Path,
+        output_path: &Path,
+        spec: &ResizeSpec,
+    ) -> Result<(), ImageError> {
+        let img = open_image(input_path)?;
+        let (orig_w, orig_h) = (img.width(), img.height());
+
+        if orig_w <= spec.width && orig_h <= spec.height {
+            img.save(output_path).map_err(|e| ImageError::Encode(e.to_string()))?;
+            return Ok(());
+        }
+
+        // Compute target dimensions that fit within spec, preserving aspect ratio.
+        let scale = (spec.width as f64 / orig_w as f64)
+            .min(spec.height as f64 / orig_h as f64);
+        let target_w = ((orig_w as f64 * scale).round() as u32).max(1);
+        let target_h = ((orig_h as f64 * scale).round() as u32).max(1);
+
+        let rgba = img.into_rgba8();
+        let src = Image::from_vec_u8(orig_w, orig_h, rgba.into_raw(), PixelType::U8x4)
+            .map_err(|e| ImageError::Decode(e.to_string()))?;
+
+        let mut dst = Image::new(target_w, target_h, PixelType::U8x4);
+
+        Resizer::new()
+            .resize(
+                &src,
+                &mut dst,
+                &ResizeOptions::new()
+                    .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3)),
+            )
+            .map_err(|e| ImageError::Encode(e.to_string()))?;
+
+        let out = image::RgbaImage::from_raw(target_w, target_h, dst.into_vec())
+            .ok_or_else(|| ImageError::Encode("buffer size mismatch after resize".to_string()))?;
+
+        out.save(output_path).map_err(|e| ImageError::Encode(e.to_string()))?;
+
+        Ok(())
+    }
+}
+
+// ── public API (platform-independent) ───────────────────────────────────────
+
+/// Returns the dimensions (width, height) of the image at `input_path`.
+pub fn get_dimensions(input_path: &Path) -> Result<(u32, u32), ImageError> {
+    platform::get_dimensions(input_path)
+}
+
 /// Resize an image to fit within the given dimensions and save as PNG.
 ///
-/// Uses libvips `thumbnail` for fused decode+resize (fastest path).
 /// Never upscales: if the image already fits, it passes through unchanged.
 pub fn resize_to_png(
     input_path: &Path,
     output_path: &Path,
     spec: &ResizeSpec,
 ) -> Result<(), ImageError> {
-    let input_str = input_path.to_str().ok_or(ImageError::InvalidPath)?;
-    let output_str = output_path.to_str().ok_or(ImageError::InvalidPath)?;
-
-    // Read dimensions first to handle no-upscale logic
-    let img = libvips::VipsImage::new_from_file(input_str)
-        .map_err(|e| ImageError::Decode(e.to_string()))?;
-    let (w, h) = (img.get_width() as u32, img.get_height() as u32);
-
-    if w <= spec.width && h <= spec.height {
-        // Already fits — just save as PNG without resizing
-        libvips::ops::pngsave(&img, output_str)
-            .map_err(|e| ImageError::Encode(e.to_string()))?;
-    } else {
-        // Compute the constraining width so both width AND height fit.
-        // thumbnail() only takes a width param; we derive the effective
-        // width that respects both the width and height constraints.
-        let scale_w = spec.width as f64 / w as f64;
-        let scale_h = spec.height as f64 / h as f64;
-        let scale = scale_w.min(scale_h);
-        let effective_width = (w as f64 * scale).round() as i32;
-
-        let resized = libvips::ops::thumbnail(input_str, effective_width)
-            .map_err(|e| ImageError::Decode(e.to_string()))?;
-        libvips::ops::pngsave(&resized, output_str)
-            .map_err(|e| ImageError::Encode(e.to_string()))?;
-    }
-
-    Ok(())
-}
-
-/// Returns the dimensions (width, height) of the image at `input_path`.
-pub fn get_dimensions(input_path: &Path) -> Result<(u32, u32), ImageError> {
-    let input_str = input_path.to_str().ok_or(ImageError::InvalidPath)?;
-
-    let img = libvips::VipsImage::new_from_file(input_str)
-        .map_err(|e| ImageError::Decode(e.to_string()))?;
-
-    Ok((img.get_width() as u32, img.get_height() as u32))
+    platform::resize_to_png(input_path, output_path, spec)
 }
 
 /// Returns `true` if the image at `input_path` exceeds [`HIGH_RES_THRESHOLD`]
@@ -117,13 +212,9 @@ pub fn needs_high_res(input_path: &Path) -> Result<bool, ImageError> {
 
 /// Generate all standard derivatives for an uploaded image.
 ///
-/// Produces each derivative sequentially using libvips `thumbnail` (which
-/// manages its own internal thread pool). Returns a list of
-/// `(label, output_path)` pairs for successfully created derivatives.
-/// If the original exceeds [`HIGH_RES_THRESHOLD`], a high-resolution
-/// derivative is included.
-///
-/// Output filenames are `{stem}_{width}x{height}.png`.
+/// Returns a list of `(label, output_path)` pairs for each derivative created.
+/// If the original exceeds [`HIGH_RES_THRESHOLD`], a high-resolution derivative
+/// is included. Output filenames are `{stem}_{width}x{height}.png`.
 pub fn generate_derivatives(
     input_path: &Path,
     output_dir: &Path,
@@ -151,12 +242,10 @@ pub fn generate_derivatives(
     Ok(results)
 }
 
-/// Resize the image to all given `specs` sequentially using libvips.
+/// Resize the image to all given `specs` sequentially.
 ///
-/// libvips manages its own thread pool internally — no external parallelism
-/// needed. Returns a `ResizeAllResult` with per-spec outcomes. The
-/// `decode_elapsed` field measures the first thumbnail call (which includes
-/// the initial decode).
+/// Returns a `ResizeAllResult` with per-spec outcomes. `decode_elapsed`
+/// measures the first resize call (which includes the initial decode).
 pub fn resize_all(
     input_path: &Path,
     specs: &[(ResizeSpec, PathBuf)],
@@ -194,11 +283,13 @@ pub enum ImageError {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::Once;
 
-    static VIPS_INIT: Once = Once::new();
+    // libvips must be initialised once per process on non-Windows.
+    #[cfg(not(target_os = "windows"))]
+    static VIPS_INIT: std::sync::Once = std::sync::Once::new();
 
     fn init_vips() {
+        #[cfg(not(target_os = "windows"))]
         VIPS_INIT.call_once(|| {
             let _app = libvips::VipsApp::new("rapid-test", false)
                 .expect("failed to init libvips for tests");
