@@ -177,6 +177,21 @@ impl MetadataStore {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn update_derivative_dimensions(
+        &self,
+        id: &str,
+        width: i64,
+        height: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE derivatives SET width = ?, height = ? WHERE id = ?")
+            .bind(width)
+            .bind(height)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn get_derivatives_by_parent(
         &self,
         parent_id: &str,

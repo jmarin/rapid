@@ -405,6 +405,17 @@ async fn process_image_derivatives(
             continue;
         }
 
+        // Update stored dimensions to actual output size (may differ from spec
+        // when the original is smaller than the target and we skip upscaling).
+        if let Ok((actual_w, actual_h)) = image::get_dimensions(&output_path) {
+            if actual_w != specs[i].width || actual_h != specs[i].height {
+                let _ = state
+                    .metadata
+                    .update_derivative_dimensions(&derivative_id, actual_w as i64, actual_h as i64)
+                    .await;
+            }
+        }
+
         // Upload derivative to S3
         let body_stream = match ByteStream::from_path(&output_path).await {
             Ok(b) => b,
