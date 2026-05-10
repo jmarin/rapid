@@ -47,6 +47,11 @@ pub struct UploadResponse {
     pub mime_type: String,
 }
 
+/// Returns `true` if the MIME type is an allowed upload type (image or video).
+pub fn is_allowed_mime_type(mime_type: &str) -> bool {
+    mime_type.starts_with("image/") || mime_type.starts_with("video/")
+}
+
 /// Calculate chunk size as a multiple of 8MB that keeps total parts <= 10,000.
 fn calculate_chunk_size(file_size: u64) -> u64 {
     let mut chunk_size = MIN_CHUNK_SIZE;
@@ -104,7 +109,7 @@ pub async fn upload_file(
     let mime_type = mime_type_magic(&temp_path).await?;
 
     // Reject files that are not image or video: delete temp file, notify client, and return 422
-    if !mime_type.starts_with("image/") && !mime_type.starts_with("video/") {
+    if !is_allowed_mime_type(&mime_type) {
         let _ = tokio::fs::remove_file(&temp_path).await;
         if let (Some(tx), Some(uid)) = (&progress_tx, &upload_id) {
             let _ = tx
@@ -371,4 +376,71 @@ async fn multipart_upload(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── calculate_chunk_size ──
+
+    #[test]
+    fn chunk_size_small_file() {
+        // Anything <= 8MB * 10_000 should use the minimum 8MB chunk
+        assert_eq!(calculate_chunk_size(1), MIN_CHUNK_SIZE);
+        assert_eq!(calculate_chunk_size(MIN_CHUNK_SIZE), MIN_CHUNK_SIZE);
+    }
+
+    #[test]
+    fn chunk_size_at_max_parts_boundary() {
+        // Exactly 10_000 parts at 8MB each = 80GB
+        let boundary = MIN_CHUNK_SIZE * MAX_PARTS;
+        assert_eq!(calculate_chunk_size(boundary), MIN_CHUNK_SIZE);
+    }
+
+    #[test]
+    fn chunk_size_just_above_boundary() {
+        // One byte over forces doubling
+        let boundary = MIN_CHUNK_SIZE * MAX_PARTS + 1;
+        assert_eq!(calculate_chunk_size(boundary), MIN_CHUNK_SIZE * 2);
+    }
+
+    #[test]
+    fn chunk_size_very_large_file() {
+        // 1 TB file
+        let one_tb = 1024 * 1024 * 1024 * 1024u64;
+        let chunk = calculate_chunk_size(one_tb);
+        assert!(chunk >= MIN_CHUNK_SIZE);
+        assert!(one_tb.div_ceil(chunk) <= MAX_PARTS);
+    }
+
+    #[test]
+    fn chunk_size_zero() {
+        // Edge case: zero-byte file
+        assert_eq!(calculate_chunk_size(0), MIN_CHUNK_SIZE);
+    }
+
+    // ── is_allowed_mime_type ──
+
+    #[test]
+    fn allows_image_types() {
+        assert!(is_allowed_mime_type("image/jpeg"));
+        assert!(is_allowed_mime_type("image/png"));
+        assert!(is_allowed_mime_type("image/webp"));
+        assert!(is_allowed_mime_type("image/x-fujifilm-raf"));
+    }
+
+    #[test]
+    fn allows_video_types() {
+        assert!(is_allowed_mime_type("video/mp4"));
+        assert!(is_allowed_mime_type("video/quicktime"));
+    }
+
+    #[test]
+    fn rejects_non_media_types() {
+        assert!(!is_allowed_mime_type("application/pdf"));
+        assert!(!is_allowed_mime_type("text/plain"));
+        assert!(!is_allowed_mime_type("application/octet-stream"));
+        assert!(!is_allowed_mime_type(""));
+    }
 }

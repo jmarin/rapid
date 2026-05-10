@@ -178,4 +178,44 @@ mod tests {
     fn missing_prefix_is_none() {
         assert_eq!(parse_range("0-100", 1000), None);
     }
+
+    #[test]
+    fn zero_total_size_returns_none() {
+        assert_eq!(parse_range("bytes=0-", 0), None);
+        // bytes=0-0 on a zero-byte file: start=0, end clamped to 0 via saturating_sub(1)=0, start<=end passes
+        // This is arguably valid (empty range at offset 0), but the handler guards against total_size==0 anyway
+        assert_eq!(parse_range("bytes=0-0", 0), Some((0, 0)));
+        assert_eq!(parse_range("bytes=-100", 0), None);
+    }
+
+    #[test]
+    fn suffix_larger_than_file() {
+        // bytes=-5000 on a 1000-byte file: start clamps to 0
+        assert_eq!(parse_range("bytes=-5000", 1000), Some((0, 999)));
+    }
+
+    #[test]
+    fn zero_suffix_is_none() {
+        assert_eq!(parse_range("bytes=-0", 1000), None);
+    }
+
+    #[test]
+    fn single_byte_range() {
+        assert_eq!(parse_range("bytes=0-0", 1000), Some((0, 0)));
+        assert_eq!(parse_range("bytes=999-999", 1000), Some((999, 999)));
+    }
+
+    #[test]
+    fn single_byte_file() {
+        assert_eq!(parse_range("bytes=0-0", 1), Some((0, 0)));
+        assert_eq!(parse_range("bytes=0-", 1), Some((0, 0)));
+        assert_eq!(parse_range("bytes=-1", 1), Some((0, 0)));
+    }
+
+    #[test]
+    fn garbage_input() {
+        assert_eq!(parse_range("bytes=abc-def", 1000), None);
+        assert_eq!(parse_range("bytes=--", 1000), None);
+        assert_eq!(parse_range("", 1000), None);
+    }
 }
