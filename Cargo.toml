@@ -24,3 +24,4 @@ tower-http = { version = "0.6.10", features = ["cors", "fs", "trace", "limit"] }
 uuid = { version = "1", features = ["v4"] }
 aws-sdk-s3 = "1.132.0"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+tempfile = "3"
