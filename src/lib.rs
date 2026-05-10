@@ -1,7 +1,7 @@
 pub mod download;
 pub mod error;
-pub mod image;
 pub mod magic;
+pub mod upload;
 pub mod ws;
 
 #[cfg(test)]
@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::net::TcpListener;
+use tokio::sync::{RwLock, Semaphore, mpsc};
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
 pub struct Application {
@@ -53,7 +53,7 @@ impl Application {
         let assets_dir = ServeDir::new("assets");
 
         let upload_route = Router::new()
-            .route("/upload", post(image::upload_file))
+            .route("/upload", post(upload::upload_file))
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)); // Setting a limit of 10GB file size for uploads
 
