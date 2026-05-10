@@ -1,24 +1,29 @@
 use dotenvy::dotenv;
-use rapid::{AppState, Application};
-use std::collections::HashMap;
+use rapid::{AppState, Application, metadata::MetadataStore};
+use dashmap::DashMap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::Semaphore;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 mod utils;
 
 use crate::utils::constants::prod::{
-    APP_ADDRESS, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CONCURRENT_S3_PARTS, DEFAULT_S3_BUCKET,
-    DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION, DEFAULT_UPLOAD_DIR,
+    APP_ADDRESS, DEFAULT_DB_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MAX_INFLIGHT_PARTS,
+    DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION, DEFAULT_UPLOAD_DIR,
 };
 
 // Temporary main. This will run the Axum web service
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
+
+    // Initialize libvips — must happen once before any image processing.
+    // Bound to `_vips` so it lives for the duration of main (process lifetime).
+    let _vips = libvips::VipsApp::new("rapid", false)
+        .expect("failed to initialize libvips");
 
     let log_level = env::var("RAPID_LOG_LEVEL").unwrap_or_else(|_| DEFAULT_LOG_LEVEL.to_string());
     tracing_subscriber::fmt()
@@ -43,12 +48,19 @@ async fn main() -> anyhow::Result<()> {
     let s3_creds =
         aws_sdk_s3::config::Credentials::new(s3_access_key, s3_secret_key, None, None, "rapid-env");
 
+    let timeout_config = aws_sdk_s3::config::timeout::TimeoutConfig::builder()
+        .operation_timeout(std::time::Duration::from_secs(300))
+        .operation_attempt_timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build();
+
     let s3_config = aws_sdk_s3::Config::builder()
         .region(aws_sdk_s3::config::Region::new(s3_region))
         .endpoint_url(&s3_endpoint)
         .credentials_provider(s3_creds)
         .behavior_version_latest()
         .force_path_style(true)
+        .timeout_config(timeout_config)
         .build();
 
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config);
@@ -67,24 +79,37 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let db_url = env::var("RAPID_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
+    let metadata = MetadataStore::new(&db_url)
+        .await
+        .expect("Failed to initialize metadata database");
+
+    let max_inflight_parts: usize = env::var("RAPID_MAX_INFLIGHT_PARTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MAX_INFLIGHT_PARTS);
+
+    // Per-upload cap: at most 1/4 of global permits, but no fewer than 4
+    let max_parts_per_upload = (max_inflight_parts / 4).max(4);
+
     let app_state = AppState {
         upload_dir,
         s3_client,
         s3_bucket,
-        upload_semaphore: Arc::new(Semaphore::new(
-            env::var("RAPID_MAX_CONCURRENT_S3_PARTS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(DEFAULT_MAX_CONCURRENT_S3_PARTS),
-        )),
-        upload_progress: Arc::new(RwLock::new(HashMap::new())),
+        upload_semaphore: Arc::new(Semaphore::new(max_inflight_parts)),
+        max_parts_per_upload,
+        upload_progress: Arc::new(DashMap::new()),
+        metadata,
     };
 
-    let app = Application::build(app_state, APP_ADDRESS)
+    let app = Application::build(app_state.clone(), APP_ADDRESS)
         .await
         .expect("Failed to start application");
 
     app.run().await.expect("Failed to run application");
+
+    info!("closing metadata database");
+    app_state.metadata.close().await;
 
     Ok(())
 }

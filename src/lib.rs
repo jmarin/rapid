@@ -2,6 +2,8 @@ pub mod download;
 pub mod error;
 pub mod image;
 pub mod magic;
+pub mod metadata;
+pub mod upload;
 pub mod ws;
 
 #[cfg(test)]
@@ -11,16 +13,16 @@ use axum::{
     Router,
     extract::DefaultBodyLimit,
     http::{Method, StatusCode},
-    routing::{get, post},
+    routing::{delete, get, post},
     serve::Serve,
 };
 pub use error::*;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::net::TcpListener;
+use tokio::sync::{Semaphore, mpsc};
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 
 pub struct Application {
@@ -32,18 +34,22 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+use crate::metadata::MetadataStore;
+
 #[derive(Clone)]
 pub struct AppState {
     pub upload_dir: PathBuf,
     pub s3_client: aws_sdk_s3::Client,
     pub s3_bucket: String,
     pub upload_semaphore: Arc<Semaphore>,
-    pub upload_progress: Arc<RwLock<HashMap<String, mpsc::Sender<ws::UploadEvent>>>>,
+    pub max_parts_per_upload: usize,
+    pub upload_progress: Arc<DashMap<String, mpsc::Sender<ws::UploadEvent>>>,
+    pub metadata: MetadataStore,
 }
 
 impl Application {
     pub async fn build(app_state: AppState, address: &str) -> Result<Self, Box<dyn Error>> {
-        let allowed_origins = ["http:://localhost:3000".parse()?];
+        let allowed_origins = ["http://localhost:3000".parse()?];
 
         let cors = CorsLayer::new()
             .allow_methods([Method::GET, Method::POST])
@@ -53,15 +59,28 @@ impl Application {
         let assets_dir = ServeDir::new("assets");
 
         let upload_route = Router::new()
-            .route("/upload", post(image::upload_file))
+            .route("/upload", post(upload::upload_file))
             .layer(DefaultBodyLimit::disable())
-            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)); // Setting a limit of 10GB file size for uploads
+            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)) // 10GB file size limit
+            .layer((
+                axum::error_handling::HandleErrorLayer::new(|_: tower::BoxError| async {
+                    StatusCode::REQUEST_TIMEOUT
+                }),
+                tower::timeout::TimeoutLayer::new(std::time::Duration::from_secs(1800)),
+            ));
 
         let router = Router::new()
             .fallback_service(assets_dir)
             .route("/health", get(liveness))
             .route("/ready", get(readiness))
             .route("/files/{id}", get(download::download_file))
+            .route("/derivatives/{parent_id}/{size}", get(download::download_derivative))
+            .route("/files/{id}/metadata", get(metadata::get_file_metadata))
+            .route("/files/{id}/derivatives", get(metadata::list_derivatives))
+            .route("/api/files", get(metadata::list_file_metadata))
+            .route("/api/files", delete(metadata::delete_all_files))
+            .route("/api/files/{id}", delete(metadata::delete_file))
+            .route("/api/files/{id}/detail", get(metadata::get_file_detail))
             .route("/ws/upload-progress", get(ws::ws_upload_progress))
             .merge(upload_route)
             .layer(cors)
@@ -77,7 +96,14 @@ impl Application {
 
     pub async fn run(self) -> Result<(), std::io::Error> {
         tracing::info!("listening on {}", &self.address);
-        self.server.await
+        self.server
+            .with_graceful_shutdown(async {
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("failed to listen for Ctrl-C");
+                tracing::info!("shutdown signal received");
+            })
+            .await
     }
 }
 

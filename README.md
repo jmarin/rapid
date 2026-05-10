@@ -22,7 +22,27 @@ RAPID is a web service that allows a user to upload an image to a server; upon u
 
 ### Technology stack
 
+### Upload Concurrency
 
+Multipart uploads to S3 are governed by two semaphores:
+
+- **Global semaphore** (`RAPID_MAX_INFLIGHT_PARTS`, default 64): limits the total number of S3 part uploads in flight across all uploads. This protects local resources (memory, file descriptors, network connections) — not S3 itself, which scales horizontally.
+- **Per-upload semaphore** (derived as `global / 4`, minimum 4): limits how many parts a single upload can have in flight at once. This enforces fairness — without it, one large file (e.g. 10GB = 1,250 parts) could monopolize all global permits and starve every other concurrent upload.
+
+Both semaphores use a 10-minute acquisition timeout to guard against deadlocks without rejecting legitimate traffic under load.
+
+### Upload Progress Tracking
+
+Upload progress is tracked via a shared map (`upload_progress`) that maps client-provided upload IDs to event channels. WebSocket subscribers register their upload IDs in this map, and the upload handler sends progress events through it.
+
+This map uses [DashMap](https://docs.rs/dashmap), a concurrent hash map with fine-grained per-shard locking, instead of a `RwLock<HashMap>`. Under concurrent uploads with active WebSocket subscribers, a single `RwLock` becomes a serialization bottleneck — every progress lookup or subscription insert contends on the same lock. DashMap shards the map internally so that operations on different keys rarely contend, giving near-linear scalability as concurrency increases.
+
+### WebSocket Architecture
+
+Each WebSocket connection uses two layers of channel splitting to allow concurrent reading and writing without shared mutable state:
+
+- **WebSocket split** (`socket.split()`): separates the socket into independent write (`ws_tx`) and read (`ws_rx`) halves so they can be used in concurrent tasks — a send task that pushes events to the client and a receive task that reads subscribe commands.
+- **mpsc channel** (`tokio::sync::mpsc`): acts as an indirection layer between upload workers and the WebSocket. When a client subscribes to an upload ID, a clone of the channel's sender is stored in the shared `upload_progress` map. Upload workers send progress events into this sender from any task, and the send task drains the receiver and serializes events as JSON onto the WebSocket. This decouples upload workers from the WebSocket lifetime — multiple concurrent uploads can emit events (multi-producer) while a single task writes them to the socket (single-consumer).
 
 ### Project structure
 

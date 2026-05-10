@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rapid - File Detail</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anybody:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #0b0c10;
+      --bg-surface: #13151a;
+      --bg-card: #1a1d24;
+      --bg-input: #22262f;
+      --border-subtle: #2a2f3a;
+      --border-hover: #3d4453;
+      --text-primary: #e8eaed;
+      --text-secondary: #8b90a3;
+      --text-dim: #5a6173;
+      --accent: #f0c040;
+      --accent-glow: rgba(240, 192, 64, 0.15);
+      --success: #34d399;
+      --success-dim: rgba(52, 211, 153, 0.12);
+      --error: #f87171;
+      --error-dim: rgba(248, 113, 113, 0.12);
+      --font-display: 'Anybody', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-mono);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 6vh 1rem;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(240, 192, 64, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(240, 192, 64, 0.03) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    main {
+      position: relative;
+      z-index: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem;
+      max-width: 800px;
+      width: 100%;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(240, 192, 64, 0.04);
+      animation: card-arrive 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    @keyframes card-arrive {
+      from { opacity: 0; transform: translateY(24px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .back-link {
+      font-size: 0.72rem;
+      color: var(--accent);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 1rem;
+    }
+    .back-link:hover { text-decoration: underline; }
+    .file-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    .file-header h1 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 1.3rem;
+    }
+    .file-header .file-id {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+    .delete-btn {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--error);
+      background: var(--error-dim);
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      padding: 0.4rem 0.8rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .delete-btn:hover { background: rgba(248, 113, 113, 0.2); border-color: rgba(248, 113, 113, 0.5); }
+    .meta-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 1rem;
+    }
+    .meta-item label {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: block;
+      margin-bottom: 3px;
+    }
+    .meta-item span { font-size: 0.78rem; color: var(--text-primary); }
+    .section-label {
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.75rem;
+    }
+    .status-badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: var(--radius-sm);
+    }
+    .status-ready { color: var(--success); background: var(--success-dim); }
+    .status-processing { color: var(--accent); background: var(--accent-glow); }
+    .derivative-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .derivative-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .derivative-card:hover { border-color: var(--border-hover); }
+    .derivative-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+      background: var(--bg-input);
+    }
+    .derivative-card .card-info { padding: 0.5rem; }
+    .derivative-card .card-info .card-label { font-size: 0.68rem; color: var(--text-primary); margin-bottom: 2px; }
+    .derivative-card .card-info .card-size { font-size: 0.6rem; color: var(--text-dim); }
+    .hint { font-size: 0.65rem; color: var(--text-dim); text-align: center; font-style: italic; }
+    .derivative-step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.72rem;
+      margin-bottom: 0.3rem;
+    }
+    .derivative-step .step-icon { width: 16px; text-align: center; font-size: 0.8rem; display: inline-block; }
+    .derivative-step.done .step-icon { color: var(--success); }
+    .derivative-step.done .step-label { color: var(--text-secondary); }
+    .derivative-step.in-progress .step-icon { color: var(--accent); animation: deriv-spin 1s linear infinite; }
+    .derivative-step.in-progress .step-label { color: var(--text-primary); }
+    .derivative-step.pending .step-icon { color: var(--text-dim); }
+    .derivative-step.pending .step-label { color: var(--text-dim); }
+    .derivative-step.failed .step-icon { color: var(--error); }
+    .derivative-step.failed .step-label { color: var(--error); }
+    @keyframes deriv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 2rem;
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 1rem;
+      right: 1.5rem;
+      color: var(--text-secondary);
+      font-size: 1.5rem;
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+    .lightbox-close:hover { color: var(--text-primary); }
+    .lightbox img { max-width: 90vw; max-height: 70vh; object-fit: contain; border-radius: var(--radius-md); }
+    .lightbox-info { margin-top: 1rem; display: flex; align-items: center; gap: 1rem; }
+    .lightbox-info span { font-size: 0.78rem; color: var(--text-secondary); }
+    .lightbox-download {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--bg-deep);
+      background: var(--accent);
+      border: none;
+      padding: 0.4rem 1rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .lightbox-download:hover { background: #f5cc5a; }
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    .confirm-dialog {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+    }
+    .confirm-dialog p { font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 1.25rem; }
+    .confirm-dialog .file-name { color: var(--text-primary); font-weight: 500; display: block; margin-top: 0.35rem; word-break: break-all; }
+    .confirm-actions { display: flex; gap: 0.75rem; justify-content: center; }
+    .confirm-actions button { font-family: var(--font-mono); font-size: 0.75rem; padding: 0.4rem 1rem; border-radius: var(--radius-sm); cursor: pointer; }
+    .btn-cancel { color: var(--text-secondary); background: none; border: 1px solid var(--border-subtle); }
+    .btn-cancel:hover { border-color: var(--border-hover); color: var(--text-primary); }
+    .btn-confirm-delete { color: var(--error); background: var(--error-dim); border: 1px solid rgba(248, 113, 113, 0.3); }
+    .btn-confirm-delete:hover { background: rgba(248, 113, 113, 0.2); }
+    .loading { text-align: center; padding: 3rem; color: var(--text-dim); font-size: 0.78rem; }
+    .error-state { text-align: center; padding: 2rem; color: var(--error); background: var(--error-dim); border-radius: var(--radius-sm); font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/files.html" class="back-link">&larr; Back to Files</a>
+    <div id="content"><div class="loading">Loading&hellip;</div></div>
+  </main>
+  <script>
+    const contentEl = document.getElementById('content');
+    const fileId = new URLSearchParams(location.search).get('id');
+    if (!fileId) {
+      contentEl.innerHTML = '<div class="error-state">No file ID provided</div>';
+    } else {
+      loadDetail();
+    }
+    const SIZE_LABELS = {
+      "32x32": "Table Thumb",
+      "80x80": "Thumbnail",
+      "250x250": "Small Preview",
+      "800x600": "Large Preview",
+      "6000x6000": "High-Res",
+    };
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
+    async function loadDetail() {
+      try {
+        const resp = await fetch(`/api/files/${fileId}/detail`);
+        if (resp.status === 404) { contentEl.innerHTML = '<div class="error-state">File not found</div>'; return; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        render(data.file, data.derivatives);
+      } catch (e) {
+        contentEl.innerHTML = `<div class="error-state">Failed to load: ${e.message}</div>`;
+      }
+    }
+    function render(file, derivatives) {
+      const allCompleted = derivatives.length > 0 && derivatives.every(d => d.status === 'completed');
+      const isImage = file.mime_type.startsWith('image/');
+      let html = `
+        <div class="file-header">
+          <div>
+            <h1>${file.file_name}</h1>
+            <div class="file-id">ID: ${file.id}</div>
+          </div>
+          <button class="delete-btn" onclick="confirmDelete()">Delete File</button>
+        </div>
+        <div class="meta-card">
+          <div class="meta-item"><label>Size</label><span>${formatBytes(file.size_bytes)}</span></div>
+          <div class="meta-item"><label>Resolution</label><span>${file.width && file.height ? file.width + '×' + file.height + ' px' : '—'}</span></div>
+          <div class="meta-item"><label>MIME Type</label><span>${file.mime_type}</span></div>
+          <div class="meta-item"><label>Uploaded</label><span>${file.created_at}</span></div>
+          <div class="meta-item"><label>Status</label><span>${allCompleted ? '<span class="status-badge status-ready">&check; Ready</span>' : isImage ? '<span class="status-badge status-processing">&#10227; Processing</span>' : '&mdash;'}</span></div>
+        </div>`;
+      if (isImage && !allCompleted && derivatives.length > 0) {
+        html += '<div class="section-label">Processing</div>';
+        for (const d of derivatives) {
+          const icon = d.status === 'completed' ? '✓' : d.status === 'processing' ? '⟳' : d.status === 'failed' ? '×' : '○';
+          const cls = d.status === 'completed' ? 'done' : d.status === 'processing' ? 'in-progress' : d.status === 'failed' ? 'failed' : 'pending';
+          const label = SIZE_LABELS[d.size_label] || d.size_label;
+          html += `<div class="derivative-step ${cls}"><span class="step-icon">${icon}</span><span class="step-label">${d.size_label} ${label}</span></div>`;
+        }
+      }
+      const completed = derivatives.filter(d => d.status === 'completed' && d.size_label !== '32x32');
+      if (completed.length > 0) {
+        html += `<div class="section-label" style="margin-top:1.5rem;">Derivatives (${completed.length})</div>`;
+        html += '<div class="derivative-grid">';
+        for (const d of completed) {
+          const label = SIZE_LABELS[d.size_label] || d.size_label;
+          html += `<div class="derivative-card" onclick="openLightbox('${d.size_label}', '${label}')">
+            <img src="/derivatives/${fileId}/${d.size_label}" alt="${label}">
+            <div class="card-info"><div class="card-label">${label}</div><div class="card-size">${d.size_label}</div></div>
+          </div>`;
+        }
+        html += '</div><p class="hint">Click any derivative to preview</p>';
+      }
+      contentEl.innerHTML = html;
+    }
+    function openLightbox(sizeLabel, label) {
+      const lb = document.createElement('div');
+      lb.className = 'lightbox';
+      lb.innerHTML = `
+        <button class="lightbox-close" onclick="this.parentElement.remove()">&times;</button>
+        <img src="/derivatives/${fileId}/${sizeLabel}" alt="${label}">
+        <div class="lightbox-info">
+          <span>${label} &mdash; ${sizeLabel}</span>
+          <a class="lightbox-download" href="/derivatives/${fileId}/${sizeLabel}" download>Download</a>
+        </div>`;
+      lb.addEventListener('click', (e) => { if (e.target === lb) lb.remove(); });
+      document.addEventListener('keydown', function handler(e) {
+        if (e.key === 'Escape') { lb.remove(); document.removeEventListener('keydown', handler); }
+      });
+      document.body.appendChild(lb);
+    }
+    function confirmDelete() {
+      const overlay = document.createElement('div');
+      overlay.className = 'confirm-overlay';
+      overlay.innerHTML = `
+        <div class="confirm-dialog">
+          <p>Delete this file and all its derivatives?<span class="file-name">${fileId}</span></p>
+          <div class="confirm-actions">
+            <button class="btn-cancel" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+            <button class="btn-confirm-delete" onclick="doDelete(this)">Delete</button>
+          </div>
+        </div>`;
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+      document.body.appendChild(overlay);
+    }
+    async function doDelete(btn) {
+      btn.disabled = true;
+      btn.textContent = 'Deleting\u2026';
+      try {
+        const resp = await fetch(`/api/files/${fileId}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.location = '/files.html';
+      } catch (e) {
+        btn.textContent = 'Failed';
+        setTimeout(() => btn.closest('.confirm-overlay').remove(), 1500);
+      }
+    }
+  </script>
+</body>
+</html>

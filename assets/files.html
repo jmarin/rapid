@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rapid - Files</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anybody:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #0b0c10;
+      --bg-surface: #13151a;
+      --bg-card: #1a1d24;
+      --bg-input: #22262f;
+      --border-subtle: #2a2f3a;
+      --border-hover: #3d4453;
+      --text-primary: #e8eaed;
+      --text-secondary: #8b90a3;
+      --text-dim: #5a6173;
+      --accent: #f0c040;
+      --accent-glow: rgba(240, 192, 64, 0.15);
+      --accent-dim: #c49a20;
+      --error: #f87171;
+      --error-dim: rgba(248, 113, 113, 0.12);
+      --success: #34d399;
+      --font-display: 'Anybody', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-mono);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 6vh 1rem;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(240, 192, 64, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(240, 192, 64, 0.03) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    main {
+      position: relative;
+      z-index: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem;
+      max-width: 1100px;
+      width: 100%;
+      box-shadow:
+        0 4px 24px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(240, 192, 64, 0.04);
+      animation: card-arrive 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes card-arrive {
+      from { opacity: 0; transform: translateY(24px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.6rem;
+      letter-spacing: -0.02em;
+    }
+
+    .badge {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--accent-glow);
+      border: 1px solid rgba(240, 192, 64, 0.2);
+      padding: 0.2rem 0.5rem;
+      border-radius: 99px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .nav-link {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      text-decoration: none;
+      margin-left: auto;
+      padding: 0.3rem 0.65rem;
+      border: 1px solid rgba(240, 192, 64, 0.25);
+      border-radius: var(--radius-sm);
+      transition: all 0.2s ease;
+    }
+
+    .nav-link:hover {
+      background: var(--accent-glow);
+      border-color: rgba(240, 192, 64, 0.5);
+    }
+
+    /* Table */
+    .table-wrap {
+      overflow-x: auto;
+      margin-bottom: 1.25rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+
+    th {
+      text-align: left;
+      font-weight: 500;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 220px;
+    }
+
+    tr:hover td {
+      color: var(--text-primary);
+      background: var(--bg-surface);
+    }
+
+    td.id-cell {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      max-width: 120px;
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .pagination button {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: none;
+      border: 1px solid rgba(240, 192, 64, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.35rem 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: auto;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: var(--accent-glow);
+      border-color: rgba(240, 192, 64, 0.5);
+      transform: none;
+      box-shadow: none;
+    }
+
+    .pagination button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .pagination .page-info {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      min-width: 10ch;
+      text-align: center;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-dim);
+      font-size: 0.82rem;
+    }
+
+    .error-state {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--error);
+      background: var(--error-dim);
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-dim);
+      font-size: 0.78rem;
+    }
+
+    .delete-btn {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--error);
+      background: none;
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.2rem 0.5rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .delete-btn:hover {
+      background: var(--error-dim);
+      border-color: rgba(248, 113, 113, 0.5);
+    }
+
+    .delete-all-btn {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--error);
+      background: none;
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.3rem 0.7rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .delete-all-btn:hover {
+      background: var(--error-dim);
+      border-color: rgba(248, 113, 113, 0.5);
+    }
+
+    .delete-all-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .delete-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* Confirm dialog overlay */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+
+    .confirm-dialog {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+    }
+
+    .confirm-dialog p {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+    }
+
+    .confirm-dialog .file-name {
+      color: var(--text-primary);
+      font-weight: 500;
+      display: block;
+      margin-top: 0.35rem;
+      word-break: break-all;
+    }
+
+    .confirm-actions {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+
+    .confirm-actions button {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.4rem 1rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-cancel {
+      color: var(--text-secondary);
+      background: none;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-cancel:hover {
+      border-color: var(--border-hover);
+      color: var(--text-primary);
+    }
+
+    .btn-confirm-delete {
+      color: var(--error);
+      background: var(--error-dim);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+    }
+
+    .btn-confirm-delete:hover {
+      background: rgba(248, 113, 113, 0.2);
+      border-color: rgba(248, 113, 113, 0.5);
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <div class="header">
+      <h1>Rapid</h1>
+      <span class="badge">files</span>
+      <a href="/" class="nav-link">Upload</a>
+      <button class="delete-all-btn" id="delete-all-btn">Delete All</button>
+    </div>
+
+    <div id="content">
+      <div class="loading">Loading...</div>
+    </div>
+
+    <div class="pagination" id="pagination" style="display: none;">
+      <button id="prev-btn" disabled>Prev</button>
+      <span class="page-info" id="page-info"></span>
+      <button id="next-btn" disabled>Next</button>
+    </div>
+  </main>
+
+  <script>
+    const contentEl = document.getElementById("content");
+    const paginationEl = document.getElementById("pagination");
+    const prevBtn = document.getElementById("prev-btn");
+    const nextBtn = document.getElementById("next-btn");
+    const pageInfo = document.getElementById("page-info");
+
+    let currentPage = 1;
+
+    // Read initial page from URL
+    const urlPage = new URLSearchParams(location.search).get("page");
+    if (urlPage) currentPage = Math.max(1, parseInt(urlPage, 10) || 1);
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
+
+    function thumbnailCell(item) {
+      if (item.mime_type.startsWith("image/")) {
+        return `<td style="width:48px;padding:0.4rem 0.5rem;"><img src="/derivatives/${item.id}/32x32" style="width:32px;height:32px;border-radius:4px;object-fit:cover;animation:fade-in 0.3s ease;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div style="display:none;width:32px;height:32px;border-radius:4px;background:var(--bg-input);align-items:center;justify-content:center;font-size:9px;color:var(--text-dim);">...</div></td>`;
+      } else if (item.mime_type.startsWith("video/")) {
+        return `<td style="width:48px;padding:0.4rem 0.5rem;"><div style="width:32px;height:32px;border-radius:4px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;"><span style="color:var(--text-dim);font-size:14px;">\u25b6</span></div></td>`;
+      } else {
+        return `<td style="width:48px;padding:0.4rem 0.5rem;"><div style="width:32px;height:32px;border-radius:4px;background:var(--bg-input);"></div></td>`;
+      }
+    }
+
+    function statusCell(item) {
+      if (item.derivatives_status === "ready") {
+        return `<td><span style="font-size:0.68rem;color:var(--success);background:rgba(52,211,153,0.1);padding:2px 6px;border-radius:4px;">\u2713 Ready (${item.derivatives_count})</span></td>`;
+      } else if (item.derivatives_status === "processing") {
+        return `<td><span style="font-size:0.68rem;color:var(--accent);background:rgba(240,192,64,0.1);padding:2px 6px;border-radius:4px;">\u27f3 Processing</span></td>`;
+      } else {
+        return `<td><span style="font-size:0.68rem;color:var(--text-dim);">\u2014</span></td>`;
+      }
+    }
+
+    async function loadPage(page) {
+      currentPage = page;
+      history.replaceState(null, "", page === 1 ? "/files.html" : `/files.html?page=${page}`);
+
+      contentEl.innerHTML = '<div class="loading">Loading\u2026</div>';
+      paginationEl.style.display = "none";
+
+      try {
+        const resp = await fetch(`/api/files?page=${page}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+
+        if (data.items.length === 0 && data.page === 1) {
+          contentEl.innerHTML = '<div class="empty-state">No files uploaded yet.</div>';
+          return;
+        }
+
+        let html = '<div class="table-wrap"><table><thead><tr>';
+        html += '<th></th><th>ID</th><th>File Name</th><th>Resolution</th><th>Size</th><th>MIME Type</th><th>Created</th><th>Status</th><th></th>';
+        html += '</tr></thead><tbody>';
+
+        for (const item of data.items) {
+          html += `<tr onclick="window.location='/file-detail.html?id=${item.id}'" style="cursor:pointer">`;
+          html += thumbnailCell(item);
+          html += `<td class="id-cell" title="${item.id}">${item.id.slice(0, 8)}\u2026</td>`;
+          html += `<td title="${item.file_name}">${item.file_name}</td>`;
+          html += `<td>${item.width && item.height ? item.width + '×' + item.height : '—'}</td>`;
+          html += `<td>${formatBytes(item.size_bytes)}</td>`;
+          html += `<td>${item.mime_type}</td>`;
+          html += `<td>${item.created_at}</td>`;
+          html += statusCell(item);
+          html += `<td><button class="delete-btn" onclick="event.stopPropagation(); showConfirm('${item.id}', '${item.file_name.replace(/'/g, "\\'")}')" data-id="${item.id}" data-name="${item.file_name}">Delete</button></td>`;
+          html += '</tr>';
+        }
+
+        html += '</tbody></table></div>';
+        contentEl.innerHTML = html;
+
+        // Update pagination
+        pageInfo.textContent = `Page ${data.page}`;
+        prevBtn.disabled = data.page <= 1;
+        nextBtn.disabled = !data.has_next;
+        paginationEl.style.display = "flex";
+
+      } catch (e) {
+        contentEl.innerHTML = `<div class="error-state">Failed to load files: ${e.message}</div>`;
+      }
+    }
+
+    prevBtn.addEventListener("click", () => { if (currentPage > 1) loadPage(currentPage - 1); });
+    nextBtn.addEventListener("click", () => loadPage(currentPage + 1));
+
+    // Delete with confirmation
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".delete-btn");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const name = btn.dataset.name;
+      showConfirm(id, name);
+    });
+
+    function showConfirm(id, fileName) {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `
+        <div class="confirm-dialog">
+          <p>Delete this file and its metadata?<span class="file-name">${fileName}</span></p>
+          <div class="confirm-actions">
+            <button class="btn-cancel">Cancel</button>
+            <button class="btn-confirm-delete">Delete</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector(".btn-cancel").addEventListener("click", () => overlay.remove());
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+      overlay.querySelector(".btn-confirm-delete").addEventListener("click", async () => {
+        const delBtn = overlay.querySelector(".btn-confirm-delete");
+        delBtn.disabled = true;
+        delBtn.textContent = "Deleting\u2026";
+        try {
+          const resp = await fetch(`/api/files/${id}`, { method: "DELETE" });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${resp.status}`);
+          }
+          overlay.remove();
+          loadPage(currentPage);
+        } catch (err) {
+          delBtn.textContent = "Failed";
+          setTimeout(() => overlay.remove(), 1500);
+        }
+      });
+    }
+
+    // Delete All
+    document.getElementById("delete-all-btn").addEventListener("click", () => {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `
+        <div class="confirm-dialog">
+          <p>Delete <strong>all files</strong> and their derivatives? This cannot be undone.</p>
+          <div class="confirm-actions">
+            <button class="btn-cancel">Cancel</button>
+            <button class="btn-confirm-delete">Delete All</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector(".btn-cancel").addEventListener("click", () => overlay.remove());
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+      overlay.querySelector(".btn-confirm-delete").addEventListener("click", async () => {
+        const delBtn = overlay.querySelector(".btn-confirm-delete");
+        delBtn.disabled = true;
+        delBtn.textContent = "Deleting\u2026";
+        try {
+          const resp = await fetch("/api/files", { method: "DELETE" });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${resp.status}`);
+          }
+          overlay.remove();
+          loadPage(1);
+        } catch (err) {
+          delBtn.textContent = "Failed";
+          setTimeout(() => overlay.remove(), 1500);
+        }
+      });
+    });
+
+    loadPage(currentPage);
+  </script>
+</body>
+
+</html>
