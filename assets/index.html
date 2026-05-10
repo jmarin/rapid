@@ -221,16 +221,6 @@
       cursor: not-allowed;
     }
 
-    .checkbox-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 0.85rem;
-      color: var(--text-secondary);
-      margin-right: 1rem;
-      cursor: pointer;
-    }
-
     /* Uploads container */
     #uploads {
       margin-top: 1.5rem;
@@ -563,9 +553,6 @@
       <div class="file-count" id="file-count"></div>
     </div>
     <input type="file" id="file-input" multiple>
-    <label class="checkbox-label">
-      <input type="checkbox" id="parallel-checkbox"> Process derivatives in parallel
-    </label>
     <button id="upload-btn" disabled>Upload</button>
     <div class="divider" id="divider"></div>
     <div id="uploads"></div>
@@ -852,6 +839,10 @@
               if (step) {
                 step.className = 'derivative-step done';
                 step.querySelector('.step-icon').textContent = '✓';
+                const elapsed = data.elapsed_ms;
+                const timeStr = elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`;
+                const label = step.querySelector('.step-label');
+                label.textContent = label.textContent.replace(/\u2026$/, '') + ` ${timeStr}`;
               }
               const next = section.querySelector(`[data-index="${data.derivative_number}"]`);
               if (next && next.classList.contains('pending')) {
@@ -905,7 +896,6 @@
         xhr.open("POST", "/upload");
         xhr.setRequestHeader("X-Upload-Id", uploadId);
         xhr.setRequestHeader("X-File-Name", file.name);
-        xhr.setRequestHeader("X-Parallel-Derivatives", document.getElementById("parallel-checkbox").checked ? "true" : "false");
 
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {

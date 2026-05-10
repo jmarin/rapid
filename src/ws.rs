@@ -65,6 +65,7 @@ pub enum UploadEvent {
         size_label: String,
         derivative_number: u32,
         total_derivatives: u32,
+        elapsed_ms: u128,
     },
 
     #[serde(rename = "processing_completed")]
@@ -255,11 +256,13 @@ mod tests {
             size_label: "80x80".into(),
             derivative_number: 1,
             total_derivatives: 3,
+            elapsed_ms: 42,
         };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "derivative_completed");
         assert_eq!(json["size_label"], "80x80");
         assert_eq!(json["derivative_number"], 1);
+        assert_eq!(json["elapsed_ms"], 42);
     }
 
     #[test]

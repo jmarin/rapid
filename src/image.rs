@@ -5,8 +5,8 @@ use std::time::Duration;
 pub struct ResizeAllResult {
     /// Time spent on the first thumbnail call (proxy for decode time).
     pub decode_elapsed: Duration,
-    /// Per-spec results: (label, output_path, resize result).
-    pub items: Vec<(String, PathBuf, Result<(), ImageError>)>,
+    /// Per-spec results: (label, output_path, elapsed, resize result).
+    pub items: Vec<(String, PathBuf, Duration, Result<(), ImageError>)>,
 }
 
 /// Predefined output sizes for image transformations.
@@ -161,16 +161,17 @@ pub fn resize_all(
     input_path: &Path,
     specs: &[(ResizeSpec, PathBuf)],
 ) -> Result<ResizeAllResult, ImageError> {
-    let mut items: Vec<(String, PathBuf, Result<(), ImageError>)> = Vec::with_capacity(specs.len());
+    let mut items: Vec<(String, PathBuf, Duration, Result<(), ImageError>)> = Vec::with_capacity(specs.len());
     let mut decode_elapsed = Duration::ZERO;
 
     for (i, (spec, out_path)) in specs.iter().enumerate() {
         let t0 = std::time::Instant::now();
         let result = resize_to_png(input_path, out_path, spec);
+        let elapsed = t0.elapsed();
         if i == 0 {
-            decode_elapsed = t0.elapsed();
+            decode_elapsed = elapsed;
         }
-        items.push((spec.label.to_string(), out_path.clone(), result));
+        items.push((spec.label.to_string(), out_path.clone(), elapsed, result));
     }
 
     Ok(ResizeAllResult {
@@ -308,9 +309,10 @@ mod tests {
         let result = resize_all(&input, &specs).unwrap();
         assert_eq!(result.items.len(), 2);
         assert!(result.decode_elapsed > Duration::ZERO);
-        for (_, path, res) in &result.items {
+        for (_, path, elapsed, res) in &result.items {
             assert!(res.is_ok());
             assert!(path.exists());
+            assert!(*elapsed > Duration::ZERO);
         }
     }
 

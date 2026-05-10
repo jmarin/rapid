@@ -361,7 +361,7 @@ async fn process_image_derivatives(
     };
 
     // Now iterate through results: insert DB rows, upload to S3, send WS events.
-    for (i, (_label, output_path, resize_result)) in per_spec_results.into_iter().enumerate() {
+    for (i, (_label, output_path, resize_elapsed, resize_result)) in per_spec_results.into_iter().enumerate() {
         let size_label = format!(
             "{}x{}",
             specs[i].width, specs[i].height
@@ -435,7 +435,7 @@ async fn process_image_derivatives(
             .bucket(&state.s3_bucket)
             .key(&s3_key)
             .body(body_stream)
-            .content_type("image/jpeg")
+            .content_type("image/png")
             .send()
             .await
         {
@@ -461,6 +461,7 @@ async fn process_image_derivatives(
                     size_label: size_label.clone(),
                     derivative_number: (i + 1) as u32,
                     total_derivatives: total,
+                    elapsed_ms: resize_elapsed.as_millis(),
                 })
                 .await;
         }
