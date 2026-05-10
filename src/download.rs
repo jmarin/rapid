@@ -8,6 +8,64 @@ use tokio_util::io::ReaderStream;
 
 use crate::{AppState, error::DownloadError};
 
+pub async fn download_derivative(
+    State(state): State<AppState>,
+    Path((parent_id, size)): Path<(String, String)>,
+) -> Result<impl IntoResponse, DownloadError> {
+    let derivative = state
+        .metadata
+        .get_derivative_by_parent_and_size(&parent_id, &size)
+        .await
+        .map_err(|e| DownloadError::S3(e.to_string()))?
+        .ok_or(DownloadError::NotFound)?;
+
+    if derivative.status != "completed" {
+        return Err(DownloadError::NotFound);
+    }
+
+    let resp = state
+        .s3_client
+        .get_object()
+        .bucket(&state.s3_bucket)
+        .key(&derivative.s3_key)
+        .send()
+        .await
+        .map_err(|e| {
+            use aws_sdk_s3::operation::get_object::GetObjectError;
+            let is_not_found = e
+                .as_service_error()
+                .map(|se| matches!(se, GetObjectError::NoSuchKey(_)))
+                .unwrap_or(false);
+            if is_not_found {
+                DownloadError::NotFound
+            } else {
+                DownloadError::S3(e.to_string())
+            }
+        })?;
+
+    let content_type = resp
+        .content_type()
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let content_length = resp.content_length().unwrap_or(0) as u64;
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    response_headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&content_length.to_string())
+            .unwrap_or(HeaderValue::from_static("0")),
+    );
+
+    let body = Body::from_stream(ReaderStream::new(resp.body.into_async_read()));
+
+    Ok((StatusCode::OK, response_headers, body))
+}
+
 pub async fn download_file(
     State(state): State<AppState>,
     Path(id): Path<String>,
