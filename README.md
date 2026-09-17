@@ -22,6 +22,49 @@ RAPID is a web service that allows a user to upload an image to a server; upon u
 
 ### Technology stack
 
+### Build prerequisites
+
+RAPID links against two native C libraries, so they must be present before
+`cargo build` will succeed.
+
+#### macOS
+
+```sh
+brew install vips libmagic file-formula
+```
+
+Three things about this are worth knowing, because the failure modes are not
+obvious:
+
+- **`vips` and `libmagic` live outside the default linker search path.**
+  Homebrew installs them under `/opt/homebrew` (Apple Silicon) or `/usr/local`
+  (Intel), neither of which the macOS linker searches. `build.rs` resolves each
+  keg and emits the matching `rustc-link-search` directive; without them the
+  build fails at link time with `ld: library 'vips' not found`.
+- **`file-formula` is required, not optional.** The custom magic database in
+  `magic-files/` is compiled at build time, and a compiled `.mgc` carries a
+  format version that libmagic refuses to load unless it matches its own.
+  Apple's `/usr/bin/file` (5.41) emits format version 16, while Homebrew's
+  libmagic (5.46) only loads version 20. On a mismatch libmagic does not error —
+  it falls back to parsing the binary `.mgc` as magic *source text*, printing
+  `offset ... invalid` warnings and leaving a database that matches nothing. So
+  `build.rs` compiles with Homebrew's `file`, which is built against the same
+  libmagic that gets linked.
+- **Apple's `file` also leaves a stray `magic.mgc` behind.** It compiles its own
+  default system database into the working directory alongside the intended
+  output. Since the custom database loader picks up every `.mgc` in that
+  directory, `build.rs` prunes anything that is not the expected output.
+
+`build.rs` emits a `cargo:warning` naming the missing formula if any of the
+three is absent.
+
+#### Linux (Debian/Ubuntu)
+
+```sh
+apt install libvips-dev libmagic-dev file
+```
+
+
 ### Upload Concurrency
 
 Multipart uploads to S3 are governed by two semaphores:
